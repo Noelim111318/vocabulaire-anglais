@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vocabulaire d'Anglais</title>
+  <meta name="description" content="Apprends du vocabulaire anglais en choisissant la bonne traduction, avec un rapport d'erreurs.">
+  <meta name="theme-color" content="#1A0A2E">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<div class="stars" id="stars"></div>
+
+<div class="burst-container" id="burst"></div>
+
+<div class="container">
+  <div class="install-row" id="install-row" hidden>
+    <button class="install-btn" id="install-btn" type="button">📲 Installer l'appli</button>
+    <button class="install-dismiss" id="install-dismiss" type="button">Masquer</button>
+  </div>
+  <p class="install-hint" id="install-hint" hidden></p>
+
+  <div class="header">
+    <div class="version-badge" id="app-version">v1.0.0</div>
+    <h1>⭐ Vocabulaire d'Anglais</h1>
+    <p>Apprends de nouveaux mots à ton rythme !</p>
+    <div class="streak-badge" id="streak-badge" hidden></div>
+  </div>
+
+  <!-- SCREEN 1 : Settings -->
+  <div class="screen active" id="screen-settings">
+    <div class="settings-panel" id="settings-panel">
+      <h2>Choisir les listes</h2>
+      <div class="lists-grid" id="lists-grid"></div>
+      <div class="settings-actions">
+        <button class="btn-select-all" id="select-all-btn">Tout sélectionner</button>
+        <button class="btn-deselect" id="deselect-btn">Tout décocher</button>
+      </div>
+
+      <h2 class="difficulty-title">Difficulté</h2>
+      <p class="difficulty-help" id="difficulty-help">Nombre de propositions à chaque question.</p>
+      <div class="difficulty-picker" id="difficulty-picker" role="group" aria-label="Difficulté">
+        <button class="difficulty-btn" data-choices="3">Facile<span>3 choix</span></button>
+        <button class="difficulty-btn" data-choices="4">Moyen<span>4 choix</span></button>
+        <button class="difficulty-btn" data-choices="6">Difficile<span>6 choix</span></button>
+      </div>
+
+      <h2 class="difficulty-title">Options</h2>
+      <label class="option-toggle" id="smart-toggle-wrap">
+        <input type="checkbox" id="smart-toggle">
+        <span>🧠 Entraînement intelligent <span class="opt-note">(revoir surtout les mots pas encore acquis)</span></span>
+      </label>
+      <label class="option-toggle" id="full-review-wrap">
+        <input type="checkbox" id="full-review-toggle">
+        <span>📖 Passer en revue <strong>tous</strong> les mots des listes cochées</span>
+      </label>
+      <label class="option-toggle" id="both-toggle-wrap">
+        <input type="checkbox" id="both-toggle">
+        <span>↔️ Chaque mot dans les <strong>deux sens</strong> <span class="opt-note">(partie 2× plus longue)</span></span>
+      </label>
+      <label class="option-toggle" id="speak-toggle-wrap">
+        <input type="checkbox" id="speak-toggle">
+        <span>🔊 Prononcer les deux mots après chaque réponse</span>
+      </label>
+      <label class="option-toggle" id="sound-toggle-wrap">
+        <input type="checkbox" id="sound-toggle">
+        <span>🔔 Petits sons quand on répond</span>
+      </label>
+
+      <button class="reset-progress" id="reset-progress" type="button">Réinitialiser la progression</button>
+    </div>
+    <button class="start-btn" id="start-btn">🚀 C'est parti !</button>
+  </div>
+
+  <!-- SCREEN 2 : Game -->
+  <div class="screen" id="screen-game">
+    <div class="progress-wrap">
+      <div class="progress-info">
+        <span>Progression</span>
+        <strong id="progress-text">0 / 0</strong>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    </div>
+
+    <div class="score-row">
+      <div class="score-card correct"><div class="num" id="score-correct" aria-label="Réponses réussies">0</div><div class="lbl" aria-hidden="true">✅ Succès</div></div>
+      <div class="score-card wrong"><div class="num" id="score-wrong" aria-label="Erreurs">0</div><div class="lbl" aria-hidden="true">❌ Erreurs</div></div>
+      <div class="score-card remaining"><div class="num" id="score-remaining" aria-label="Questions restantes">0</div><div class="lbl" aria-hidden="true">🔵 Restantes</div></div>
+    </div>
+
+    <div class="question-card" id="question-card">
+      <span class="mascot" id="mascot" aria-hidden="true">🦊</span>
+      <div class="prompt-label" id="prompt-label"></div>
+      <div class="question-text" id="question-text" aria-live="polite"></div>
+      <button class="listen-btn" id="listen-btn" type="button" aria-label="Écouter le mot">🔊 Écouter</button>
+      <div class="prompt-hint" id="prompt-hint"></div>
+      <div class="choices" id="choices" role="group" aria-label="Propositions"></div>
+    </div>
+
+    <div class="feedback" id="feedback" role="status" aria-live="polite"></div>
+
+    <button class="next-btn" id="next-btn">Question suivante →</button>
+
+    <button class="ghost-link" id="go-home-game">← Changer les listes</button>
+  </div>
+
+  <!-- SCREEN 3 : Results -->
+  <div class="screen" id="screen-results">
+    <div class="results-screen">
+      <div class="big-emoji" id="result-emoji">🏆</div>
+      <h2 id="result-title">Bravo !</h2>
+      <p id="result-subtitle"></p>
+      <div class="results-grid">
+        <div class="result-item"><div class="n g" id="res-correct">0</div><div class="l">✅ Corrects</div></div>
+        <div class="result-item"><div class="n r" id="res-wrong">0</div><div class="l">❌ Erreurs</div></div>
+        <div class="result-item result-item--wide"><div class="n" id="res-rate">0%</div><div class="l">🎯 Taux de réussite</div></div>
+      </div>
+
+      <div class="history-week" id="history-week" hidden>
+        <h3>📅 7 derniers jours</h3>
+        <div class="week-bars" id="week-bars"></div>
+        <p class="week-summary" id="week-summary"></p>
+      </div>
+
+      <div class="list-summary" id="list-summary">
+        <h3>📊 Bilan par liste</h3>
+        <div id="list-summary-list"></div>
+      </div>
+
+      <div class="error-report" id="error-report">
+        <h3>📋 Mots à revoir</h3>
+        <div class="error-list" id="error-list"></div>
+      </div>
+
+      <div class="results-actions">
+        <button class="action-btn review" id="review-btn">🔁 Réviser mes erreurs</button>
+        <button class="action-btn print" id="print-btn">🖨️ Imprimer le rapport</button>
+      </div>
+
+      <button class="restart-btn" id="restart-btn">🔄 Recommencer</button>
+      <button class="ghost-link results" id="go-home-results">← Choisir d'autres listes</button>
+    </div>
+  </div>
+</div>
+
+<script src="words.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>

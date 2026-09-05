@@ -1,0 +1,9 @@
+# OS / éditeurs
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+
+# Fichiers temporaires
+*.tmp
