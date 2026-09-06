@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = 'v1.0.0';
+  const APP_VERSION = 'v1.0.1';
   const HISTORY_KEY = 'vocab_error_history_v1';
   const PREFS_KEY = 'vocab_prefs_v1';
   const MASTERY_KEY = 'vocab_mastery_v1';
@@ -479,6 +479,7 @@
     document.getElementById(id).classList.add('active');
     document.body.classList.toggle('results-active', id === 'screen-results');
     document.body.classList.toggle('settings-active', id === 'screen-settings');
+    document.body.classList.toggle('game-active', id === 'screen-game');
     window.scrollTo(0, 0);
     refreshInstall();
   }
@@ -525,6 +526,7 @@
     if (queue.length === 0) { showResults(); return; }
     answered = false;
     currentItem = queue.shift();
+    window.scrollTo(0, 0);   // chaque question repart en haut de l'écran
 
     const feedback = document.getElementById('feedback');
     feedback.textContent = '';

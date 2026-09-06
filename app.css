@@ -473,6 +473,11 @@ body::before {
 .next-btn.visible {
   opacity: 1; visibility: visible; height: auto; padding: 12px 12px;
   pointer-events: auto;
+  /* stays reachable at the bottom of the viewport, even in Difficile mode */
+  position: sticky;
+  bottom: calc(6px + env(safe-area-inset-bottom));
+  z-index: 6;
+  box-shadow: 0 6px 20px rgba(11, 7, 18, 0.55);
 }
 .next-btn:hover { background: #5B2DA0; }
 
@@ -627,16 +632,19 @@ body::before {
 }
 .shake { animation: shake 0.4s ease; }
 
-/* Settings and results: one global page scrollbar (like a normal page), and never
-   shrink the layout with transform:scale — let the page grow and scroll instead. */
+/* Every screen: one global page scrollbar (like a normal page), and never shrink
+   the layout with transform:scale — let the page grow and scroll instead. This
+   keeps the "Question suivante" button reachable in Difficile mode (6 choices). */
 body.results-active,
-body.settings-active {
+body.settings-active,
+body.game-active {
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
 }
 body.settings-active .container,
-body.results-active .container { transform: none; }
+body.results-active .container,
+body.game-active .container { transform: none; }
 
 .screen { display: none; flex-direction: column; align-items: center; gap: 16px; width: 100%; }
 .screen.active { display: flex; }
