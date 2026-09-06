@@ -80,6 +80,7 @@ body::before {
   position: relative; z-index: 1;
   width: 100%; max-width: 540px;
   display: flex; flex-direction: column; align-items: center; gap: 20px;
+  padding-bottom: 28px;   /* respiration en bas quand l'écran défile */
   transform: scale(var(--app-scale));
   transform-origin: top center;
   transition: transform 0.2s ease;
@@ -144,6 +145,31 @@ body::before {
   background: #1A0A2E; padding: 2px 8px; border-radius: 8px;
   color: var(--yellow); font-family: inherit;
 }
+
+.level-picker {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  margin-bottom: 12px;
+}
+.level-btn {
+  background: linear-gradient(180deg, #1e0d34, #170a29);
+  border: 2px solid #4b2f7a; border-radius: 14px;
+  color: var(--purple-light); font-family: 'Nunito', sans-serif;
+  font-size: 0.92rem; font-weight: 900; padding: 9px 4px;
+  cursor: pointer; transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  user-select: none; -webkit-user-select: none;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+}
+.level-btn span { font-size: 0.6rem; font-weight: 800; opacity: 0.7; }
+.level-btn:active { transform: scale(0.98); }
+@media (hover: hover) and (pointer: fine) {
+  .level-btn:hover { border-color: var(--yellow); color: var(--yellow); }
+}
+.level-btn.active {
+  background: linear-gradient(180deg, #fce369, #f7ca00);
+  color: #1A0A2E; border-color: #fce369;
+  box-shadow: 0 0 14px rgba(255,214,10,0.45);
+}
+.level-btn.active span { opacity: 0.85; }
 
 .lists-grid {
   display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
@@ -221,6 +247,27 @@ body::before {
   box-shadow: 0 0 14px rgba(255,214,10,0.45);
 }
 .difficulty-btn.active span { opacity: 0.85; }
+
+.length-picker {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+.length-btn {
+  background: linear-gradient(180deg, #1e0d34, #170a29);
+  border: 2px solid #4b2f7a; border-radius: 14px;
+  color: var(--purple-light); font-family: 'Nunito', sans-serif;
+  font-size: 1rem; font-weight: 900; padding: 11px 4px;
+  cursor: pointer; transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  user-select: none; -webkit-user-select: none;
+}
+.length-btn:active { transform: scale(0.98); }
+@media (hover: hover) and (pointer: fine) {
+  .length-btn:hover { border-color: var(--yellow); color: var(--yellow); }
+}
+.length-btn.active {
+  background: linear-gradient(180deg, #fce369, #f7ca00);
+  color: #1A0A2E; border-color: #fce369;
+  box-shadow: 0 0 14px rgba(255,214,10,0.45);
+}
 
 .option-toggle {
   display: flex; align-items: flex-start; gap: 10px;

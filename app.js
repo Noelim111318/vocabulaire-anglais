@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = 'v1.0.2';
+  const APP_VERSION = 'v1.1.0';
   const HISTORY_KEY = 'vocab_error_history_v1';
   const PREFS_KEY = 'vocab_prefs_v1';
   const MASTERY_KEY = 'vocab_mastery_v1';
@@ -7,11 +7,9 @@
   const DAILY_KEY = 'vocab_daily_v1';
   const MASTERED_STREAK = 3;     // bonnes réponses d'affilée = mot "appris"
   const SLOW_MS = 5000;
-  // Nombre maxi de questions par partie. Si les listes cochées contiennent plus
-  // de mots que ça, on en tire ce nombre au hasard (pour garder des parties
-  // courtes). La case « Passer en revue tous les mots » sur l'écran d'accueil
-  // ignore cette limite ; modifie aussi cette valeur si tu veux un autre défaut.
-  const MAX_QUESTIONS = 25;
+  // Longueur d'une partie : choix proposés sur l'écran d'accueil, + "Tous".
+  const LENGTH_CHOICES = [10, 20, 40];
+  const DEFAULT_LENGTH = 20;
   const mascots = ['🦊', '🐸', '🦁', '🐼', '🦄', '🐯', '🐧', '🦋'];
 
   /* ---------------------------------------------------------------- Stars */
@@ -44,6 +42,13 @@
     return arr.slice(0, 3).join(' / ') + (arr.length > 3 ? ' …' : '');
   }
 
+  function normLevel(v, fallback) {
+    const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
+    if (s === 'avance' || s === 'avancé' || s === 'advanced') return 'avance';
+    if (s === 'primaire' || s === 'primary' || s === 'facile') return 'primaire';
+    return fallback;
+  }
+
   function normalizeLists(raw) {
     if (!Array.isArray(raw)) return [];
     const out = [];
@@ -55,6 +60,7 @@
       const icon = (typeof list.icon === 'string' && list.icon.trim())
         ? list.icon.trim()
         : '📚';
+      const level = normLevel(list.level, 'primaire');
       const wordsRaw = Array.isArray(list.words) ? list.words : [];
       const words = [];
       const seen = new Set();
@@ -69,9 +75,10 @@
         const k = en.toLowerCase() + '|' + fr.toLowerCase();
         if (seen.has(k)) return;
         seen.add(k);
-        words.push({ en, fr, enAll, frAll });
+        // un mot peut avoir son propre "level" ; sinon il hérite de celui de la liste
+        words.push({ en, fr, enAll, frAll, level: normLevel(w.level, level) });
       });
-      if (words.length >= 1) out.push({ name, icon, words });
+      if (words.length >= 1) out.push({ name, icon, level, words });
     });
     const nameSeen = new Set();
     out.forEach((l, i) => {
@@ -89,7 +96,9 @@
 
   const ALL_WORDS = [];
   LISTS.forEach(l => l.words.forEach(w =>
-    ALL_WORDS.push({ en: w.en, fr: w.fr, enAll: w.enAll, frAll: w.frAll, listName: l.name })));
+    ALL_WORDS.push({
+      en: w.en, fr: w.fr, enAll: w.enAll, frAll: w.frAll, level: w.level, listName: l.name,
+    })));
 
   const WORD_INDEX = {};
   ALL_WORDS.forEach(w => { WORD_INDEX[errKey(w.listName, w.en)] = w; });
@@ -120,7 +129,8 @@
   let mascotIdx = 0;
   let advanceTimer = null;
   let speakAfter = true;
-  let fullReview = false;
+  let sessionLength = DEFAULT_LENGTH;   // nombre de questions, ou 'all'
+  let levelFilter = 'primaire';   // 'primaire' | 'avance' | 'tout'
   let smartMode = true;
   let bothDirections = false;
   let soundOn = true;
@@ -152,8 +162,8 @@
       const names = [];
       selectedIds.forEach(i => { if (LISTS[i]) names.push(LISTS[i].name); });
       localStorage.setItem(PREFS_KEY, JSON.stringify({
-        lists: names, difficulty,
-        speak: speakAfter, fullReview,
+        lists: names, difficulty, level: levelFilter, length: sessionLength,
+        speak: speakAfter,
         smart: smartMode, both: bothDirections, sound: soundOn,
       }));
     } catch (e) { /* ignore */ }
@@ -182,12 +192,32 @@
   }
   function listMastered(list) {
     let n = 0;
-    list.words.forEach(w => {
+    listVisibleWords(list).forEach(w => {
       const m = mastery[errKey(list.name, w.en)];
       if (m && m.streak >= MASTERED_STREAK) n += 1;
     });
     return n;
   }
+
+  /* --------------------------------------------------- Filtrage par niveau */
+  // le niveau filtre les MOTS : une liste peut mélanger primaire et avancé
+  function listVisibleWords(list) {
+    return levelFilter === 'tout'
+      ? list.words
+      : list.words.filter(w => w.level === levelFilter);
+  }
+  function isVisible(list) { return listVisibleWords(list).length > 0; }
+  function levelWords() {
+    return levelFilter === 'tout'
+      ? ALL_WORDS
+      : ALL_WORDS.filter(w => w.level === levelFilter);
+  }
+  function visibleSelectedCount() {
+    let n = 0;
+    selectedIds.forEach(i => { if (LISTS[i] && isVisible(LISTS[i])) n += 1; });
+    return n;
+  }
+  function anyAdvanced() { return ALL_WORDS.some(w => w.level === 'avance'); }
 
   /* ---------------------------------------------- Série de jours + historique */
   function dayStr(ms) {
@@ -293,12 +323,50 @@
   }
 
   /* --------------------------------------------------------- Settings screen */
+  // (re)construit la grille des listes selon le niveau choisi
+  function renderLists() {
+    const grid = document.getElementById('lists-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    const vis = [];
+    LISTS.forEach((l, i) => { if (isVisible(l)) vis.push(i); });
+    if (vis.length && !vis.some(i => selectedIds.has(i))) selectedIds.add(vis[0]);
+
+    vis.forEach(i => {
+      const l = LISTS[i];
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'list-btn' + (selectedIds.has(i) ? ' active' : '');
+      btn.dataset.idx = String(i);
+      const emoji = document.createElement('span');
+      emoji.className = 'list-emoji';
+      emoji.setAttribute('aria-hidden', 'true');
+      emoji.textContent = l.icon;
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'list-name';
+      nameSpan.textContent = l.name;
+      const cnt = document.createElement('span');
+      cnt.className = 'count';
+      const total = listVisibleWords(l).length;
+      const done = listMastered(l);
+      cnt.textContent = done > 0
+        ? `${done}/${total} appris`
+        : (total > 1 ? `${total} mots` : '1 mot');
+      btn.append(emoji, nameSpan, cnt);
+      btn.addEventListener('click', () => toggleList(i, btn));
+      grid.appendChild(btn);
+    });
+  }
+
   function initSettings() {
     const prefs = loadPrefs();
     mastery = loadJSON(MASTERY_KEY, {});
     difficulty = [3, 4, 6].includes(prefs.difficulty) ? prefs.difficulty : 4;
     speakAfter = prefs.speak !== false;
-    fullReview = prefs.fullReview === true;
+    sessionLength = (prefs.length === 'all' || LENGTH_CHOICES.includes(prefs.length))
+      ? prefs.length
+      : (prefs.fullReview === true ? 'all' : DEFAULT_LENGTH);   // migre l'ancien réglage
+    levelFilter = ['primaire', 'avance', 'tout'].includes(prefs.level) ? prefs.level : 'primaire';
     smartMode = prefs.smart !== false;      // activé par défaut
     bothDirections = prefs.both === true;
     soundOn = prefs.sound !== false;        // activé par défaut
@@ -310,7 +378,6 @@
       el.addEventListener('change', () => { set(el.checked); savePrefs(); });
     }
     bindToggle('smart-toggle', () => smartMode, v => { smartMode = v; });
-    bindToggle('full-review-toggle', () => fullReview, v => { fullReview = v; });
     bindToggle('both-toggle', () => bothDirections, v => { bothDirections = v; });
     bindToggle('sound-toggle', () => soundOn, v => { soundOn = v; if (v) ensureAudio(); });
 
@@ -341,8 +408,6 @@
       });
     }
 
-    const grid = document.getElementById('lists-grid');
-
     if (LISTS.length === 0) {
       const panel = document.getElementById('settings-panel');
       panel.classList.add('no-lists');
@@ -361,28 +426,28 @@
     }
     if (selectedIds.size === 0) selectedIds.add(0);
 
-    LISTS.forEach((l, i) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'list-btn' + (selectedIds.has(i) ? ' active' : '');
-      btn.dataset.idx = String(i);
-      const emoji = document.createElement('span');
-      emoji.className = 'list-emoji';
-      emoji.setAttribute('aria-hidden', 'true');
-      emoji.textContent = l.icon;
-      const nameSpan = document.createElement('span');
-      nameSpan.className = 'list-name';
-      nameSpan.textContent = l.name;
-      const cnt = document.createElement('span');
-      cnt.className = 'count';
-      const done = listMastered(l);
-      cnt.textContent = done > 0
-        ? `${done}/${l.words.length} appris`
-        : (l.words.length > 1 ? `${l.words.length} mots` : '1 mot');
-      btn.append(emoji, nameSpan, cnt);
-      btn.addEventListener('click', () => toggleList(i, btn));
-      grid.appendChild(btn);
-    });
+    const levelPicker = document.getElementById('level-picker');
+    if (levelPicker) {
+      if (!anyAdvanced()) {
+        levelPicker.hidden = true;          // pas de liste avancée -> pas de sélecteur
+        levelFilter = 'primaire';
+      } else {
+        levelPicker.querySelectorAll('.level-btn').forEach(b => {
+          const lv = b.dataset.level;
+          b.classList.toggle('active', lv === levelFilter);
+          b.addEventListener('click', () => {
+            levelFilter = lv;
+            levelPicker.querySelectorAll('.level-btn').forEach(x =>
+              x.classList.toggle('active', x.dataset.level === levelFilter));
+            renderLists();
+            savePrefs();
+            setTimeout(() => b.blur(), 0);
+          });
+        });
+      }
+    }
+
+    renderLists();
 
     document.querySelectorAll('.difficulty-btn').forEach(b => {
       const n = Number(b.dataset.choices);
@@ -395,11 +460,25 @@
         setTimeout(() => b.blur(), 0);
       });
     });
+
+    document.querySelectorAll('.length-btn').forEach(b => {
+      const v = b.dataset.length === 'all' ? 'all' : Number(b.dataset.length);
+      b.classList.toggle('active', v === sessionLength);
+      b.addEventListener('click', () => {
+        sessionLength = v;
+        document.querySelectorAll('.length-btn').forEach(x => {
+          const xv = x.dataset.length === 'all' ? 'all' : Number(x.dataset.length);
+          x.classList.toggle('active', xv === sessionLength);
+        });
+        savePrefs();
+        setTimeout(() => b.blur(), 0);
+      });
+    });
   }
 
   function toggleList(i, btn) {
     if (selectedIds.has(i)) {
-      if (selectedIds.size === 1) return;
+      if (visibleSelectedCount() <= 1) return;   // garde au moins 1 liste cochée
       selectedIds.delete(i);
       btn.classList.remove('active');
     } else {
@@ -411,16 +490,20 @@
   }
 
   function selectAll() {
-    LISTS.forEach((l, i) => selectedIds.add(i));
+    LISTS.forEach((l, i) => { if (isVisible(l)) selectedIds.add(i); });
     document.querySelectorAll('.list-btn').forEach(b => b.classList.add('active'));
     savePrefs();
   }
 
   function deselectAll() {
-    const keep = selectedIds.size ? Math.min(...selectedIds) : 0;
-    selectedIds = new Set([keep]);
+    const vis = [];
+    LISTS.forEach((l, i) => { if (isVisible(l)) vis.push(i); });
+    const keep = vis.find(i => selectedIds.has(i));
+    const keepId = (keep === undefined) ? vis[0] : keep;
+    vis.forEach(i => { if (i !== keepId) selectedIds.delete(i); });
+    if (keepId !== undefined) selectedIds.add(keepId);
     document.querySelectorAll('.list-btn').forEach(b =>
-      b.classList.toggle('active', Number(b.dataset.idx) === keep));
+      b.classList.toggle('active', Number(b.dataset.idx) === keepId));
     savePrefs();
   }
 
@@ -429,7 +512,7 @@
     const out = [];
     selectedIds.forEach(i => {
       const l = LISTS[i];
-      if (l) l.words.forEach(w => out.push({
+      if (l) listVisibleWords(l).forEach(w => out.push({
         en: w.en, fr: w.fr, enAll: w.enAll, frAll: w.frAll, listName: l.name,
       }));
     });
@@ -468,7 +551,8 @@
       items = shuffle(items);
     }
 
-    if (!fullReview && items.length > MAX_QUESTIONS) items = items.slice(0, MAX_QUESTIONS);
+    const cap = sessionLength === 'all' ? Infinity : sessionLength;
+    if (items.length > cap) items = items.slice(0, cap);
     return items;
   }
 
@@ -495,7 +579,6 @@
         en: it.en, fr: it.fr, enAll: it.enAll, frAll: it.frAll, listName: it.listName, dir: randomDir(),
       })));
     } else {
-      if (selectedIds.size === 0) return;
       q = buildQueue();
     }
     if (q.length === 0) return;
@@ -578,7 +661,7 @@
       if (!seen.has(n)) { seen.add(n); candidates.push(s); }
     };
     selectedWords().forEach(consider);
-    if (candidates.length < wanted - 1) ALL_WORDS.forEach(consider);
+    if (candidates.length < wanted - 1) levelWords().forEach(consider);
     candidates = shuffle(candidates).slice(0, wanted - 1);
 
     const options = shuffle([correct, ...candidates]);

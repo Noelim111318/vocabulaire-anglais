@@ -25,7 +25,7 @@
   <p class="install-hint" id="install-hint" hidden></p>
 
   <div class="header">
-    <div class="version-badge" id="app-version">v1.0.2</div>
+    <div class="version-badge" id="app-version">v1.1.0</div>
     <h1>⭐ Vocabulaire d'Anglais</h1>
     <p>Apprends de nouveaux mots à ton rythme !</p>
     <div class="streak-badge" id="streak-badge" hidden></div>
@@ -35,6 +35,11 @@
   <div class="screen active" id="screen-settings">
     <div class="settings-panel" id="settings-panel">
       <h2>Choisir les listes</h2>
+      <div class="level-picker" id="level-picker" role="group" aria-label="Niveau de vocabulaire">
+        <button class="level-btn" data-level="primaire" type="button">Primaire</button>
+        <button class="level-btn" data-level="avance" type="button">Avancé</button>
+        <button class="level-btn" data-level="tout" type="button">Tout</button>
+      </div>
       <div class="lists-grid" id="lists-grid"></div>
       <div class="settings-actions">
         <button class="btn-select-all" id="select-all-btn">Tout sélectionner</button>
@@ -49,14 +54,19 @@
         <button class="difficulty-btn" data-choices="6">Difficile<span>6 choix</span></button>
       </div>
 
+      <h2 class="difficulty-title">Longueur de la partie</h2>
+      <p class="difficulty-help">Nombre de questions posées (tirées au hasard parmi les listes cochées).</p>
+      <div class="length-picker" id="length-picker" role="group" aria-label="Longueur de la partie">
+        <button class="length-btn" data-length="10" type="button">10</button>
+        <button class="length-btn" data-length="20" type="button">20</button>
+        <button class="length-btn" data-length="40" type="button">40</button>
+        <button class="length-btn" data-length="all" type="button">Tous</button>
+      </div>
+
       <h2 class="difficulty-title">Options</h2>
       <label class="option-toggle" id="smart-toggle-wrap">
         <input type="checkbox" id="smart-toggle">
         <span>🧠 Entraînement intelligent <span class="opt-note">(revoir surtout les mots pas encore acquis)</span></span>
-      </label>
-      <label class="option-toggle" id="full-review-wrap">
-        <input type="checkbox" id="full-review-toggle">
-        <span>📖 Passer en revue <strong>tous</strong> les mots des listes cochées</span>
       </label>
       <label class="option-toggle" id="both-toggle-wrap">
         <input type="checkbox" id="both-toggle">

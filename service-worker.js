@@ -1,7 +1,7 @@
 // Service worker for the "Vocabulaire d'Anglais" PWA.
 // Caches the app shell so the game works fully offline once loaded.
 
-const CACHE_NAME = 'vocab-anglais-v1.0.2';
+const CACHE_NAME = 'vocab-anglais-v1.1.0';
 
 // Files that make up the app shell.
 const APP_SHELL = [

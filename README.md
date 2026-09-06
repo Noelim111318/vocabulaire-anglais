@@ -18,22 +18,35 @@ window.VOCAB_LISTS = [
   {
     name: "Les animaux",          // texte affiché sur le bouton de la liste
     icon: "🐶",                    // emoji affiché sur le bouton (facultatif, 📚 par défaut)
+    level: "avance",              // facultatif : "avance" = vocabulaire avancé (sinon "primaire")
     words: [
       { en: "dog", fr: "chien" }, // en = anglais, fr = français
       { en: "cat", fr: "chat" },
       // plusieurs traductions acceptées : tableau, la 1re est celle affichée
       { en: "teacher", fr: ["professeur", "maître", "maîtresse"] },
       { en: ["trousers", "pants"], fr: "pantalon" },
+      // un mot peut forcer son propre niveau (ici : plus difficile que le reste)
+      { en: "hedgehog", fr: "hérisson", level: "avance" },
     ],
   },
   // copie un bloc { name, icon, words: [...] } pour ajouter une liste
 ];
 ```
 
-- `words.js` est déjà rempli avec **25 listes de vocabulaire du primaire**
-  (cycles 2 et 3 : nombres, couleurs, famille, corps, animaux, nourriture,
-  vêtements, école, maison, météo/saisons, émotions, verbes, métiers, ville,
-  transports, nature, Halloween, Noël, adjectifs…). Modifie-les ou ajoute les tiennes.
+- `words.js` est déjà rempli avec **40 listes (~710 mots)** :
+  - **25 listes thématiques** (nombres, couleurs, famille, corps, animaux, nourriture,
+    vêtements, école, maison, météo, émotions, verbes, métiers, ville, transports,
+    nature, Halloween, Noël, adjectifs…) : majoritairement primaire, **avec en fin
+    de chaque liste ~5 mots plus difficiles** (`level: "avance"`) sur le même thème ;
+  - **15 listes entièrement avancées** (`level: "avance"`, niveau A2–B1 :
+    caractère, décrire une personne, maison en détail, environnement, corps/santé,
+    verbes du collège, matières scolaires, adverbes/connecteurs, géographie…).
+  Modifie-les ou ajoute les tiennes.
+- **Niveau** : `level: "avance"` classe en avancé (sans ce champ → « primaire »).
+  Il se met sur une **liste** *et/ou* sur un **mot précis**
+  (`{ en: "hedgehog", fr: "hérisson", level: "avance" }`) — une liste peut donc
+  mélanger des mots primaire et avancés. Sur l'écran d'accueil, le sélecteur
+  **Primaire / Avancé / Tout** filtre les mots affichés.
 - **Plusieurs traductions** : mets un tableau à la place d'une chaîne pour `en`
   ou `fr`. La **1re valeur** est celle qui s'affiche (le mot montré et le bouton
   « bonne réponse ») ; les suivantes sont *aussi acceptées* — elles ne seront
@@ -48,29 +61,24 @@ window.VOCAB_LISTS = [
 - Après modification : recharge la page (ou redéploie).
 
 Au premier lancement, **seule la 1re liste est cochée** : sur l'écran d'accueil,
-coche les listes à travailler. Une partie fait au maximum **25 questions**
-(tirées au hasard si les listes cochées en contiennent plus). Coche
-**« 📖 Passer en revue tous les mots des listes cochées »** pour une partie
-complète, sans limite (chaque mot une fois, dans un sens tiré au hasard). Le
-défaut de 25 se règle via `MAX_QUESTIONS` en haut de `app.js`.
+coche les listes à travailler.
 
-## Niveaux de difficulté
+## Difficulté et longueur de la partie
 
-| Niveau | Propositions affichées |
-|--------|------------------------|
-| Facile | 3 |
-| Moyen | 4 |
-| Difficile | 6 |
+| Réglage | Choix |
+|---|---|
+| **Difficulté** | Facile (3 propositions) · Moyen (4) · Difficile (6) |
+| **Longueur de la partie** | 10 · 20 · 40 questions · **Tous** (tous les mots des listes cochées) — défaut : **20** |
 
-La liste choisie et la difficulté sont mémorisées dans le navigateur pour la prochaine fois.
-Le nombre cumulé d'erreurs par mot (« total : N » dans le rapport) est aussi conservé.
+Les mots sont tirés au hasard parmi les listes cochées ; si tu en coches plus que
+la longueur choisie, une partie n'en pose que ce nombre. Réglages, listes et
+progression sont mémorisés dans le navigateur.
 
 ## Options (écran d'accueil)
 
 | Option | Effet | Défaut |
 |---|---|---|
 | 🧠 **Entraînement intelligent** | Repropose surtout les mots **pas encore acquis** (un mot est « appris » après **3 bonnes réponses d'affilée**), et espace les mots acquis. Le compteur `12/45 appris` s'affiche sur chaque bouton de liste. | activé |
-| 📖 **Passer en revue tous les mots** | Ignore la limite de 25 → chaque mot des listes cochées une fois. | désactivé |
 | ↔️ **Chaque mot dans les deux sens** | Chaque mot est posé EN→FR *et* FR→EN (partie 2× plus longue). | désactivé |
 | 🔊 **Prononcer les deux mots** | Lecture automatique après chaque réponse (voir plus bas). | activé |
 | 🔔 **Petits sons** | Un « ding » / « boop » court quand on répond. | activé |
