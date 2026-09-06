@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = 'v1.1.0';
+  const APP_VERSION = 'v1.1.1';
   const HISTORY_KEY = 'vocab_error_history_v1';
   const PREFS_KEY = 'vocab_prefs_v1';
   const MASTERY_KEY = 'vocab_mastery_v1';
@@ -651,18 +651,27 @@
     const accepted = new Set((acceptedAll || [correct]).map(norm));
     const seen = new Set(accepted);
     const allKey = targetLang === 'fr' ? 'frAll' : 'enAll';
-    let candidates = [];
+    const sameList = [];   // distracteurs de la même liste (prioritaires)
+    const otherList = [];  // distracteurs des autres listes cochées
 
     const consider = w => {
       const forms = w[allKey] || [w[targetLang]];
       if (forms.some(s => accepted.has(norm(s)))) return;
       const s = w[targetLang];
       const n = norm(s);
-      if (!seen.has(n)) { seen.add(n); candidates.push(s); }
+      if (seen.has(n)) return;
+      seen.add(n);
+      (w.listName === currentItem.listName ? sameList : otherList).push(s);
     };
     selectedWords().forEach(consider);
-    if (candidates.length < wanted - 1) levelWords().forEach(consider);
-    candidates = shuffle(candidates).slice(0, wanted - 1);
+    // pas assez de distracteurs : compléter avec le reste du vocabulaire du même niveau
+    if (sameList.length + otherList.length < wanted - 1) levelWords().forEach(consider);
+
+    const need = wanted - 1;
+    let candidates = shuffle(sameList).slice(0, need);
+    if (candidates.length < need) {
+      candidates = candidates.concat(shuffle(otherList).slice(0, need - candidates.length));
+    }
 
     const options = shuffle([correct, ...candidates]);
     const wrap = document.getElementById('choices');
