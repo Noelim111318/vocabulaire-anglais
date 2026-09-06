@@ -139,14 +139,24 @@ ou Partager → « Sur l'écran d'accueil » (iOS).
 | `fonts/` | Police Nunito auto-hébergée (fonctionne hors-ligne) |
 | `icons/` | Icônes de l'appli |
 | `favicon.ico` | Icône d'onglet |
+| `tools/make-icon.py` | Script de génération des icônes (facultatif) |
 
 ## Icônes
 
-Pour changer l'icône de l'appli, remplace les fichiers de `icons/` (et
-`favicon.ico`) en gardant les mêmes noms et tailles : `icon-192.png` (192×192),
-`icon-512.png` et `icon-512-maskable.png` (512×512, avec une marge autour du
-dessin pour la version *maskable*), `apple-touch-icon.png` (180×180, sans
-transparence).
+L'icône (bulle jaune « Aa » sur le fond violet étoilé) est générée par
+[`tools/make-icon.py`](tools/make-icon.py) :
+
+```bash
+pip install pillow
+python3 tools/make-icon.py
+```
+
+Modifie les couleurs / la géométrie de la bulle en haut du script, puis relance-le.
+Pour une icône complètement différente, remplace directement les fichiers de
+`icons/` (et `favicon.ico`) en gardant les mêmes noms et tailles : `icon-192.png`
+(192×192), `icon-512.png` et `icon-512-maskable.png` (512×512, avec une marge
+autour du dessin pour la version *maskable*), `apple-touch-icon.png` (180×180,
+sans transparence).
 
 ## Idées d'évolution
 

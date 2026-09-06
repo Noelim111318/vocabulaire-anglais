@@ -1,5 +1,5 @@
 (() => {
-  const APP_VERSION = 'v1.0.1';
+  const APP_VERSION = 'v1.0.2';
   const HISTORY_KEY = 'vocab_error_history_v1';
   const PREFS_KEY = 'vocab_prefs_v1';
   const MASTERY_KEY = 'vocab_mastery_v1';

@@ -7,3 +7,6 @@ desktop.ini
 
 # Fichiers temporaires
 *.tmp
+
+# Police téléchargée par tools/make-icon.py
+tools/Nunito.ttf
