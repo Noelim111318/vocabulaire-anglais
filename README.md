@@ -1,4 +1,4 @@
-# ⭐ Vocabulaire d'Anglais (PWA)
+# Vocabulaire d'Anglais (PWA)
 
 Appli web pour apprendre du vocabulaire anglais. On affiche un mot (en anglais **ou**
 en français, tiré au hasard) et l'enfant choisit la bonne traduction parmi une liste
@@ -8,6 +8,10 @@ Installable (PWA), fonctionne hors-ligne, avec entraînement adapté aux mots pa
 encore acquis, prononciation vocale, rapport d'erreurs et bilan par liste.
 
 **Lien** : https://noelim111318.github.io/vocabulaire-anglais/
+
+Construite sur `pwa-engine` (dossier `engine/` : service worker, bandeau
+d'installation, stockage, sons, série de jours). Même esprit que les appli des
+tables d'addition et de multiplication.
 
 ## Ajouter ou modifier des mots
 
@@ -85,7 +89,45 @@ progression sont mémorisés dans le navigateur.
 
 Un **🔥 compteur de jours d'affilée** s'affiche en haut quand l'enfant joue plusieurs jours de suite.
 L'écran de bilan montre les **7 derniers jours** (mini-graphique + taux de réussite).
-Le lien **« Réinitialiser la progression »** efface tout (mots appris, historique d'erreurs, série de jours).
+En bas de l'écran d'accueil, le lien **« Réinitialiser la progression »** efface tout
+(mots appris, historique d'erreurs, série de jours) ; il est volontairement à
+l'écart des réglages pour éviter les faux clics.
+
+Quitter une partie en cours (« Changer les listes ») enregistre quand même ce qui a
+été répondu. Une **nouvelle version** de l'appli n'est appliquée que depuis l'écran
+d'accueil, jamais en pleine partie ni pendant la lecture du bilan.
+
+Réglages de l'appli (seuil d'hésitation, longueurs de partie, mascottes, phrases du
+bilan…) : [`data.js`](data.js).
+
+## Ce que l'appli garde en mémoire (dans le navigateur, jamais envoyé ailleurs)
+
+Clés `localStorage`, préfixées par `vocab-anglais:` :
+
+| Donnée | Clé |
+|---|---|
+| Listes cochées, difficulté, longueur, niveau, options | `prefs` |
+| Mots appris (série de bonnes réponses par mot) | `mastery` |
+| Total cumulé d'erreurs par mot (`liste::mot`) | `errors` |
+| Série de jours d'affilée | `streak` |
+| Questions par jour (60 jours, pour le graphique 7 j) | `daily` |
+| Bandeau « Installer » masqué | `install-hidden` |
+| Version du schéma de stockage | `__schema` |
+
+**Reprise des anciennes données.** Avant la v1.2.0, les clés s'appelaient
+`vocab_prefs_v1`, `vocab_error_history_v1`, `vocab_mastery_v1`, `vocab_streak_v1`,
+`vocab_daily_v1` et `vocab_install_hidden`. Au premier lancement, `store.migrate`
+(étape 1, tout en haut de `app.js`) les recopie vers les clés ci-dessus puis supprime
+les anciennes : personne ne perd ses mots appris, sa série ni son historique.
+
+## Diagnostic
+
+En bas de l'écran d'accueil, le lien **Diagnostic** ouvre [`diag.html`](diag.html) :
+ce que l'appli a en mémoire sur l'appareil (clés, espace utilisé, service worker,
+caches) et un **journal des 30 dernières ouvertures** (clé `diag:log`, hors espace de
+l'appli) qui permet de situer un éventuel effacement des données. Boutons **Copier**
+et **Partager**. Lecture seule, rien n'est envoyé ; les valeurs très longues (mots
+appris) sont tronquées.
 
 ## Écouter les mots
 
@@ -117,7 +159,11 @@ passe par un petit serveur local comme ci-dessus.)
 2. **Settings → Pages → Build and deployment → Source : _Deploy from a branch_**,
    branche `main`, dossier `/ (root)`.
 3. Attends une minute : le site est publié sur `https://<compte>.github.io/<dépôt>/`.
-4. Reporte ce lien dans ce README et dans `manifest.json` si besoin.
+4. Reporte ce lien dans ce README et adapte `id` dans `manifest.json`.
+
+Le `manifest.json` déclare `"id": "/vocabulaire-anglais/index.html"` : c'est l'identité
+que les navigateurs déduisaient déjà de `start_url`, donc les installations
+existantes restent la même appli. Ne le change pas.
 
 ## Installer sur mobile
 
@@ -134,20 +180,42 @@ l'appli** apparaît tout seul **en haut de l'écran d'accueil** :
 Installation manuelle si besoin : menu ⋮ → « Installer l'application » (Android),
 ou Partager → « Sur l'écran d'accueil » (iOS).
 
+## Livrer une nouvelle version
+
+1. `./tools/bump-version.sh vX.Y.Z` — bumpe la version dans `index.html`,
+   `app.js`, `service-worker.js` et `manifest.json` d'un coup.
+2. Ajoute tout nouveau fichier statique à `APP_SHELL` dans `service-worker.js`.
+3. Déploie : les appareils déjà installés se mettent à jour tout seuls (au
+   prochain passage par l'accueil).
+
+## Mettre à jour le moteur
+
+`engine/` est une **copie** de `toolbox/pwa-engine/engine/` : ne la modifie pas
+ici. Depuis `toolbox/pwa-engine/` :
+
+```bash
+./tools/sync-engine.sh <chemin>/vocabulaire-anglais
+```
+
+puis `./tools/bump-version.sh vX.Y.Z` ici (le cache du service worker inclut
+`engine/*`). `engine/.version` indique la version du moteur embarquée. API du
+moteur : [`engine/README.md`](engine/README.md).
+
 ## Fichiers
 
 | Fichier | Rôle |
 |---|---|
 | `index.html` | Structure des 3 écrans (réglages / jeu / bilan) |
-| `app.css` | Styles |
-| `words.js` | **Les listes de mots — le seul fichier à éditer** |
-| `app.js` | Logique du jeu |
+| `words.js` | **Les listes de mots — le seul fichier à éditer pour changer les mots** |
+| `data.js` | Réglages et contenu de l'appli (`window.APP_DATA`) |
+| `app.js` | Logique du jeu, du bilan et de la voix |
+| `app.css` | Styles (importe `engine/engine.css`) |
 | `manifest.json` | Config PWA |
-| `service-worker.js` | Cache hors-ligne |
-| `fonts/` | Police Nunito auto-hébergée (fonctionne hors-ligne) |
-| `icons/` | Icônes de l'appli |
-| `favicon.ico` | Icône d'onglet |
-| `tools/make-icon.py` | Script de génération des icônes (facultatif) |
+| `service-worker.js` | Identité du cache + liste des fichiers ; logique dans `engine/sw-core.js` |
+| `diag.html` | Page de diagnostic (lecture seule) |
+| `engine/` | Le moteur PWA (copie de `toolbox/pwa-engine`), avec la police Nunito |
+| `icons/`, `favicon.ico` | Icônes de l'appli |
+| `tools/` | `make-icon.py` (icônes, facultatif), `bump-version.sh` (version) |
 
 ## Icônes
 

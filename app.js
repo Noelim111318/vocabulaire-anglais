@@ -1,32 +1,84 @@
-(() => {
-  const APP_VERSION = 'v1.1.1';
-  const HISTORY_KEY = 'vocab_error_history_v1';
-  const PREFS_KEY = 'vocab_prefs_v1';
-  const MASTERY_KEY = 'vocab_mastery_v1';
-  const STREAK_KEY = 'vocab_streak_v1';
-  const DAILY_KEY = 'vocab_daily_v1';
-  const MASTERED_STREAK = 3;     // bonnes réponses d'affilée = mot "appris"
-  const SLOW_MS = 5000;
-  // Longueur d'une partie : choix proposés sur l'écran d'accueil, + "Tous".
-  const LENGTH_CHOICES = [10, 20, 40];
-  const DEFAULT_LENGTH = 20;
-  const mascots = ['🦊', '🐸', '🦁', '🐼', '🦄', '🐯', '🐧', '🦋'];
+/* Vocabulaire d'Anglais — logique de l'app.
+ *
+ * La coque PWA (service worker, bandeau installer, stockage, sons, série de
+ * jours…) vient d'AppEngine (engine/engine.js). Ici : les mots, le jeu, le bilan
+ * et la voix. Les mots sont dans words.js, les réglages dans data.js.
+ */
+(function () {
+  'use strict';
 
-  /* ---------------------------------------------------------------- Stars */
-  const starsWrap = document.getElementById('stars');
-  for (let i = 0; i < 60; i++) {
-    const s = document.createElement('div');
-    s.className = 'star';
-    const sz = Math.random() * 2.5 + 0.5;
-    s.style.width = `${sz}px`;
-    s.style.height = `${sz}px`;
-    s.style.top = `${Math.random() * 100}%`;
-    s.style.left = `${Math.random() * 100}%`;
-    s.style.setProperty('--d', `${(Math.random() * 3 + 2).toFixed(1)}s`);
-    s.style.setProperty('--delay', `${(Math.random() * 4).toFixed(1)}s`);
-    s.style.setProperty('--op', `${(Math.random() * 0.6 + 0.2).toFixed(2)}`);
-    starsWrap.appendChild(s);
-  }
+  const APP_VERSION = 'v1.2.0';
+  const APP_ID = 'vocab-anglais';
+  const E = window.AppEngine;
+  const D = window.APP_DATA;
+  const $ = E.$;
+
+  /* ----------------------------------------- Reprise des anciennes données */
+  // Avant le moteur, les clés étaient `vocab_*` (sans préfixe). On les recopie
+  // une fois vers le stockage du moteur, AVANT boot() : le badge de série et le
+  // bandeau d'installation lisent le stockage dès le démarrage.
+  const LEGACY_KEYS = {
+    vocab_prefs_v1: 'prefs',
+    vocab_error_history_v1: 'errors',
+    vocab_mastery_v1: 'mastery',
+    vocab_streak_v1: 'streak',
+    vocab_daily_v1: 'daily',
+    vocab_install_hidden: 'install-hidden',
+  };
+  E.store.ns(APP_ID);
+  E.store.migrate({
+    1: function () {
+      Object.keys(LEGACY_KEYS).forEach((oldKey) => {
+        const name = LEGACY_KEYS[oldKey];
+        let raw = null;
+        try { raw = localStorage.getItem(oldKey); } catch (e) { return; }
+        if (raw === null) return;
+        let done;
+        try {
+          if (!E.store.keys().includes(name)) {
+            E.store.save(name, name === 'install-hidden' ? true : JSON.parse(raw));
+          }
+          done = E.store.keys().includes(name);   // save() avale les erreurs de quota
+        } catch (e) {
+          done = true;                            // valeur illisible : rien à sauver
+        }
+        if (done) {
+          try { localStorage.removeItem(oldKey); } catch (e) { /* ignore */ }
+        }
+      });
+    },
+  });
+
+  E.boot({
+    id: APP_ID,
+    version: APP_VERSION,
+    autoReload: false,      // voir « Mises à jour » plus bas : jamais en pleine partie
+    strings: {
+      weekNotPlayed: 'pas joué',
+      weekSummary: (seen, days, rate) =>
+        `${seen} mots sur ${days} jour${days > 1 ? 's' : ''} — ${rate}% de réussite`,
+      streak: (n) => `🔥 ${n} jour${n > 1 ? 's' : ''} d'affilée`,
+      installIosHint: 'Sur iPhone/iPad : touche « Partager » (le carré avec une flèche vers le haut), '
+        + 'puis « Sur l\'écran d\'accueil ».',
+    },
+  });
+
+  /* ------------------------------------------------- Journal des ouvertures */
+  // Diagnostic (voir diag.html) : garde les 30 dernières ouvertures (heure,
+  // version, mode, clés de progression présentes) dans une clé hors espace de
+  // l'appli, pour situer un éventuel effacement des données.
+  (function logOpening() {
+    try {
+      const own = E.store.keys();
+      const log = JSON.parse(localStorage.getItem('diag:log') || '[]');
+      log.push({
+        t: new Date().toISOString(), a: APP_ID, v: APP_VERSION,
+        m: window.matchMedia('(display-mode: standalone)').matches ? 1 : 0,
+        k: ['prefs', 'errors', 'mastery', 'streak', 'daily'].filter((k) => own.includes(k)).join(','),
+      });
+      localStorage.setItem('diag:log', JSON.stringify(log.slice(-30)));
+    } catch (e) { /* ignore */ }
+  })();
 
   /* ------------------------------------------------- Load / clean word lists */
   function toTranslations(v) {
@@ -108,14 +160,23 @@
 
   function errKey(listName, en) { return listName + '::' + en; }
   function norm(s) {
-    return String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  }
+  function span(cls, text) {
+    const s = document.createElement('span');
+    s.className = cls;
+    s.textContent = text;
+    return s;
+  }
+  function setActive(btn, on) {
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', String(on));
   }
 
   /* ------------------------------------------------------------------ State */
   let selectedIds = new Set();
   let difficulty = 4;
   let queue = [];
-  let wrongSet = new Set();
   let errorCounts = {};
   let slowSet = new Set();
   let opTimes = {};
@@ -129,44 +190,27 @@
   let mascotIdx = 0;
   let advanceTimer = null;
   let speakAfter = true;
-  let sessionLength = DEFAULT_LENGTH;   // nombre de questions, ou 'all'
+  let sessionLength = D.defaultLength;   // nombre de questions, ou 'all'
   let levelFilter = 'primaire';   // 'primaire' | 'avance' | 'tout'
   let smartMode = true;
   let bothDirections = false;
   let soundOn = true;
   let mastery = {};
-  let refreshInstall = function () {};
+  let committed = true;         // la partie en cours a-t-elle déjà été enregistrée ?
 
   /* -------------------------------------------------------------- Persistence */
-  function loadJSON(key, fallback) {
-    try {
-      const v = JSON.parse(localStorage.getItem(key));
-      return (v && typeof v === 'object') ? v : fallback;
-    } catch (e) { return fallback; }
+  function loadErrorHistory() {
+    const h = E.store.load('errors', {});
+    return h && typeof h === 'object' && !Array.isArray(h) ? h : {};
   }
-  function saveJSON(key, val) {
-    try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) { /* ignore */ }
-  }
-  function loadHistory() { return loadJSON(HISTORY_KEY, {}); }
-  function saveHistory(hist) { saveJSON(HISTORY_KEY, hist); }
-  function persistSessionErrors() {
-    const hist = loadHistory();
-    for (const [key, count] of Object.entries(errorCounts)) {
-      hist[key] = (hist[key] || 0) + count;
-    }
-    saveHistory(hist);
-  }
-  function loadPrefs() { return loadJSON(PREFS_KEY, {}); }
   function savePrefs() {
-    try {
-      const names = [];
-      selectedIds.forEach(i => { if (LISTS[i]) names.push(LISTS[i].name); });
-      localStorage.setItem(PREFS_KEY, JSON.stringify({
-        lists: names, difficulty, level: levelFilter, length: sessionLength,
-        speak: speakAfter,
-        smart: smartMode, both: bothDirections, sound: soundOn,
-      }));
-    } catch (e) { /* ignore */ }
+    const names = [];
+    selectedIds.forEach(i => { if (LISTS[i]) names.push(LISTS[i].name); });
+    E.store.save('prefs', {
+      lists: names, difficulty, level: levelFilter, length: sessionLength,
+      speak: speakAfter,
+      smart: smartMode, both: bothDirections, sound: soundOn,
+    });
   }
 
   /* ------------------------------------------------ Mastery (répétition espacée) */
@@ -180,12 +224,12 @@
     if (ok) { m.correct += 1; m.streak += 1; }
     else { m.streak = 0; }
     mastery[key] = m;
-    saveJSON(MASTERY_KEY, mastery);
+    E.store.save('mastery', mastery);
   }
   function wordWeight(key) {
     const m = mastery[key];
     if (!m || !m.seen) return 3.0;                 // jamais vu
-    if (m.streak >= MASTERED_STREAK) return 0.35;  // appris
+    if (m.streak >= D.masteredStreak) return 0.35; // appris
     if (m.streak === 2) return 1.0;
     if (m.streak === 1) return 1.8;
     return 3.5;                                     // vu mais pas encore acquis
@@ -194,7 +238,7 @@
     let n = 0;
     listVisibleWords(list).forEach(w => {
       const m = mastery[errKey(list.name, w.en)];
-      if (m && m.streak >= MASTERED_STREAK) n += 1;
+      if (m && m.streak >= D.masteredStreak) n += 1;
     });
     return n;
   }
@@ -219,114 +263,12 @@
   }
   function anyAdvanced() { return ALL_WORDS.some(w => w.level === 'avance'); }
 
-  /* ---------------------------------------------- Série de jours + historique */
-  function dayStr(ms) {
-    const d = new Date(ms);
-    return d.getFullYear() + '-'
-      + String(d.getMonth() + 1).padStart(2, '0') + '-'
-      + String(d.getDate()).padStart(2, '0');
-  }
-  function bumpStreak() {
-    const today = dayStr(Date.now());
-    const yest = dayStr(Date.now() - 864e5);
-    const s = loadJSON(STREAK_KEY, { count: 0, lastDay: '' });
-    if (s.lastDay === today) return;
-    s.count = (s.lastDay === yest) ? (s.count + 1) : 1;
-    s.lastDay = today;
-    saveJSON(STREAK_KEY, s);
-  }
-  function renderStreak() {
-    const el = document.getElementById('streak-badge');
-    if (!el) return;
-    const s = loadJSON(STREAK_KEY, { count: 0, lastDay: '' });
-    const today = dayStr(Date.now());
-    const yest = dayStr(Date.now() - 864e5);
-    const alive = s.count > 0 && (s.lastDay === today || s.lastDay === yest);
-    el.hidden = !alive;
-    if (alive) el.textContent = `🔥 ${s.count} jour${s.count > 1 ? 's' : ''} d'affilée`;
-  }
-  function logDaily(seen, correct) {
-    if (!seen) return;
-    const log = loadJSON(DAILY_KEY, {});
-    const k = dayStr(Date.now());
-    const e = log[k] || { seen: 0, correct: 0 };
-    e.seen += seen;
-    e.correct += correct;
-    log[k] = e;
-    const cutoff = dayStr(Date.now() - 60 * 864e5);
-    Object.keys(log).forEach(d => { if (d < cutoff) delete log[d]; });
-    saveJSON(DAILY_KEY, log);
-  }
-  function renderWeek() {
-    const wrap = document.getElementById('week-bars');
-    const block = document.getElementById('history-week');
-    const sum = document.getElementById('week-summary');
-    if (!wrap || !block) return;
-    const log = loadJSON(DAILY_KEY, {});
-    const labels = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
-    wrap.innerHTML = '';
-    let tSeen = 0, tCorrect = 0, days = 0;
-    for (let i = 6; i >= 0; i--) {
-      const ms = Date.now() - i * 864e5;
-      const e = log[dayStr(ms)];
-      const has = !!(e && e.seen);
-      const pct = has ? Math.round((e.correct / e.seen) * 100) : 0;
-      if (has) { tSeen += e.seen; tCorrect += e.correct; days += 1; }
-      const col = document.createElement('div');
-      col.className = 'week-col';
-      const bar = document.createElement('div');
-      bar.className = 'week-bar';
-      bar.style.height = has ? `${Math.max(8, pct)}%` : '3px';
-      if (has) bar.style.background = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--yellow)' : 'var(--red)';
-      bar.title = has ? `${e.correct}/${e.seen} — ${pct}%` : 'pas joué';
-      const lab = document.createElement('span');
-      lab.className = 'week-lab';
-      lab.textContent = labels[new Date(ms).getDay()];
-      col.append(bar, lab);
-      wrap.appendChild(col);
-    }
-    if (tSeen === 0) { block.hidden = true; return; }
-    block.hidden = false;
-    const rate = Math.round((tCorrect / tSeen) * 100);
-    sum.textContent = `${tSeen} mots sur ${days} jour${days > 1 ? 's' : ''} — ${rate}% de réussite`;
-  }
-
-  /* ----------------------------------------------------------- Petits sons */
-  let audioCtx = null;
-  function ensureAudio() {
-    if (!soundOn) return;
-    try {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return;
-      if (!audioCtx) audioCtx = new AC();
-      if (audioCtx.state === 'suspended') audioCtx.resume();
-    } catch (e) { audioCtx = null; }
-  }
-  function tone(freq, startAt, dur, type, peak) {
-    if (!audioCtx) return;
-    const t0 = audioCtx.currentTime + startAt;
-    const osc = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    osc.type = type || 'sine';
-    osc.frequency.setValueAtTime(freq, t0);
-    g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(peak || 0.2, t0 + 0.015);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    osc.connect(g); g.connect(audioCtx.destination);
-    osc.start(t0); osc.stop(t0 + dur + 0.03);
-  }
-  function playFeedbackSound(ok) {
-    if (!soundOn) return;
-    ensureAudio();
-    if (ok) { tone(660, 0, 0.12, 'sine', 0.22); tone(988, 0.1, 0.16, 'sine', 0.2); }
-    else { tone(311, 0, 0.16, 'square', 0.12); tone(233, 0.12, 0.22, 'square', 0.12); }
-  }
-
   /* --------------------------------------------------------- Settings screen */
+  const grid = $('#lists-grid');
+  const startBtn = $('#start-btn');
+
   // (re)construit la grille des listes selon le niveau choisi
   function renderLists() {
-    const grid = document.getElementById('lists-grid');
-    if (!grid) return;
     grid.innerHTML = '';
     const vis = [];
     LISTS.forEach((l, i) => { if (isVisible(l)) vis.push(i); });
@@ -336,56 +278,56 @@
       const l = LISTS[i];
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'list-btn' + (selectedIds.has(i) ? ' active' : '');
+      btn.className = 'list-btn';
       btn.dataset.idx = String(i);
-      const emoji = document.createElement('span');
-      emoji.className = 'list-emoji';
+      setActive(btn, selectedIds.has(i));
+      const emoji = span('list-emoji', l.icon);
       emoji.setAttribute('aria-hidden', 'true');
-      emoji.textContent = l.icon;
-      const nameSpan = document.createElement('span');
-      nameSpan.className = 'list-name';
-      nameSpan.textContent = l.name;
-      const cnt = document.createElement('span');
-      cnt.className = 'count';
       const total = listVisibleWords(l).length;
       const done = listMastered(l);
-      cnt.textContent = done > 0
+      const cnt = span('count', done > 0
         ? `${done}/${total} appris`
-        : (total > 1 ? `${total} mots` : '1 mot');
-      btn.append(emoji, nameSpan, cnt);
-      btn.addEventListener('click', () => toggleList(i, btn));
+        : (total > 1 ? `${total} mots` : '1 mot'));
+      btn.append(emoji, span('list-name', l.name), cnt);
       grid.appendChild(btn);
     });
   }
 
+  grid.addEventListener('click', (e) => {
+    const btn = e.target.closest('.list-btn');
+    if (btn) toggleList(Number(btn.dataset.idx), btn);
+  });
+
   function initSettings() {
-    const prefs = loadPrefs();
-    mastery = loadJSON(MASTERY_KEY, {});
+    const stored = E.store.load('prefs', {});
+    const prefs = stored && typeof stored === 'object' ? stored : {};
+    mastery = E.store.load('mastery', {});
+    if (!mastery || typeof mastery !== 'object' || Array.isArray(mastery)) mastery = {};
     difficulty = [3, 4, 6].includes(prefs.difficulty) ? prefs.difficulty : 4;
     speakAfter = prefs.speak !== false;
-    sessionLength = (prefs.length === 'all' || LENGTH_CHOICES.includes(prefs.length))
+    sessionLength = (prefs.length === 'all' || D.lengthChoices.includes(prefs.length))
       ? prefs.length
-      : (prefs.fullReview === true ? 'all' : DEFAULT_LENGTH);   // migre l'ancien réglage
+      : (prefs.fullReview === true ? 'all' : D.defaultLength);   // migre l'ancien réglage
     levelFilter = ['primaire', 'avance', 'tout'].includes(prefs.level) ? prefs.level : 'primaire';
     smartMode = prefs.smart !== false;      // activé par défaut
     bothDirections = prefs.both === true;
     soundOn = prefs.sound !== false;        // activé par défaut
+    if (!soundOn) E.sound.enable(false);    // enable(true) créerait l'AudioContext avant tout geste
 
     function bindToggle(id, get, set) {
-      const el = document.getElementById(id);
-      if (!el) return;
+      const el = $(id);
       el.checked = get();
       el.addEventListener('change', () => { set(el.checked); savePrefs(); });
     }
-    bindToggle('smart-toggle', () => smartMode, v => { smartMode = v; });
-    bindToggle('both-toggle', () => bothDirections, v => { bothDirections = v; });
-    bindToggle('sound-toggle', () => soundOn, v => { soundOn = v; if (v) ensureAudio(); });
+    bindToggle('#smart-toggle', () => smartMode, v => { smartMode = v; });
+    bindToggle('#both-toggle', () => bothDirections, v => { bothDirections = v; });
+    bindToggle('#sound-toggle', () => soundOn, v => { soundOn = v; E.sound.enable(v); });
 
-    const speakWrap = document.getElementById('speak-toggle-wrap');
-    const speakToggle = document.getElementById('speak-toggle');
+    const speakWrap = $('#speak-toggle-wrap');
+    const speakToggle = $('#speak-toggle');
     if (!hasTTS) {
-      if (speakWrap) speakWrap.hidden = true;
-    } else if (speakToggle) {
+      speakWrap.hidden = true;
+    } else {
       speakToggle.checked = speakAfter;
       speakToggle.addEventListener('change', () => {
         speakAfter = speakToggle.checked;
@@ -394,27 +336,22 @@
       });
     }
 
-    const resetBtn = document.getElementById('reset-progress');
-    if (resetBtn) {
-      resetBtn.addEventListener('click', () => {
-        const ok = window.confirm(
-          'Effacer toute la progression ?\n'
-          + '(mots appris, historique d’erreurs et série de jours)');
-        if (!ok) return;
-        [MASTERY_KEY, HISTORY_KEY, STREAK_KEY, DAILY_KEY].forEach(k => {
-          try { localStorage.removeItem(k); } catch (e) { /* ignore */ }
-        });
-        location.reload();
-      });
-    }
+    $('#reset-progress').addEventListener('click', () => {
+      const ok = window.confirm(
+        'Effacer toute la progression ?\n'
+        + '(mots appris, historique d’erreurs et série de jours)');
+      if (!ok) return;
+      ['mastery', 'errors', 'streak', 'daily'].forEach((k) => E.store.remove(k));
+      window.location.reload();
+    });
 
     if (LISTS.length === 0) {
-      const panel = document.getElementById('settings-panel');
+      const panel = $('#settings-panel');
       panel.classList.add('no-lists');
       panel.innerHTML =
         '<div class="no-lists-msg">⚠️ Aucune liste de mots trouvée.<br>' +
         'Vérifie le fichier <code>words.js</code>.</div>';
-      document.getElementById('start-btn').disabled = true;
+      startBtn.disabled = true;
       return;
     }
 
@@ -426,52 +363,44 @@
     }
     if (selectedIds.size === 0) selectedIds.add(0);
 
-    const levelPicker = document.getElementById('level-picker');
-    if (levelPicker) {
-      if (!anyAdvanced()) {
-        levelPicker.hidden = true;          // pas de liste avancée -> pas de sélecteur
-        levelFilter = 'primaire';
-      } else {
-        levelPicker.querySelectorAll('.level-btn').forEach(b => {
-          const lv = b.dataset.level;
-          b.classList.toggle('active', lv === levelFilter);
-          b.addEventListener('click', () => {
-            levelFilter = lv;
-            levelPicker.querySelectorAll('.level-btn').forEach(x =>
-              x.classList.toggle('active', x.dataset.level === levelFilter));
-            renderLists();
-            savePrefs();
-            setTimeout(() => b.blur(), 0);
-          });
+    const levelPicker = $('#level-picker');
+    if (!anyAdvanced()) {
+      levelPicker.hidden = true;          // pas de liste avancée -> pas de sélecteur
+      levelFilter = 'primaire';
+    } else {
+      const levelBtns = levelPicker.querySelectorAll('.level-btn');
+      levelBtns.forEach(b => {
+        setActive(b, b.dataset.level === levelFilter);
+        b.addEventListener('click', () => {
+          levelFilter = b.dataset.level;
+          levelBtns.forEach(x => setActive(x, x.dataset.level === levelFilter));
+          renderLists();
+          savePrefs();
         });
-      }
+      });
     }
 
     renderLists();
 
-    document.querySelectorAll('.difficulty-btn').forEach(b => {
+    const diffBtns = document.querySelectorAll('.difficulty-btn');
+    diffBtns.forEach(b => {
       const n = Number(b.dataset.choices);
-      b.classList.toggle('active', n === difficulty);
+      setActive(b, n === difficulty);
       b.addEventListener('click', () => {
         difficulty = n;
-        document.querySelectorAll('.difficulty-btn').forEach(x =>
-          x.classList.toggle('active', Number(x.dataset.choices) === difficulty));
+        diffBtns.forEach(x => setActive(x, Number(x.dataset.choices) === difficulty));
         savePrefs();
-        setTimeout(() => b.blur(), 0);
       });
     });
 
-    document.querySelectorAll('.length-btn').forEach(b => {
-      const v = b.dataset.length === 'all' ? 'all' : Number(b.dataset.length);
-      b.classList.toggle('active', v === sessionLength);
+    const lenOf = (b) => (b.dataset.length === 'all' ? 'all' : Number(b.dataset.length));
+    const lenBtns = document.querySelectorAll('.length-btn');
+    lenBtns.forEach(b => {
+      setActive(b, lenOf(b) === sessionLength);
       b.addEventListener('click', () => {
-        sessionLength = v;
-        document.querySelectorAll('.length-btn').forEach(x => {
-          const xv = x.dataset.length === 'all' ? 'all' : Number(x.dataset.length);
-          x.classList.toggle('active', xv === sessionLength);
-        });
+        sessionLength = lenOf(b);
+        lenBtns.forEach(x => setActive(x, lenOf(x) === sessionLength));
         savePrefs();
-        setTimeout(() => b.blur(), 0);
       });
     });
   }
@@ -480,22 +409,21 @@
     if (selectedIds.has(i)) {
       if (visibleSelectedCount() <= 1) return;   // garde au moins 1 liste cochée
       selectedIds.delete(i);
-      btn.classList.remove('active');
+      setActive(btn, false);
     } else {
       selectedIds.add(i);
-      btn.classList.add('active');
+      setActive(btn, true);
     }
-    setTimeout(() => btn.blur(), 0);
     savePrefs();
   }
 
-  function selectAll() {
+  $('#select-all-btn').addEventListener('click', () => {
     LISTS.forEach((l, i) => { if (isVisible(l)) selectedIds.add(i); });
-    document.querySelectorAll('.list-btn').forEach(b => b.classList.add('active'));
+    document.querySelectorAll('.list-btn').forEach(b => setActive(b, true));
     savePrefs();
-  }
+  });
 
-  function deselectAll() {
+  $('#deselect-btn').addEventListener('click', () => {
     const vis = [];
     LISTS.forEach((l, i) => { if (isVisible(l)) vis.push(i); });
     const keep = vis.find(i => selectedIds.has(i));
@@ -503,9 +431,9 @@
     vis.forEach(i => { if (i !== keepId) selectedIds.delete(i); });
     if (keepId !== undefined) selectedIds.add(keepId);
     document.querySelectorAll('.list-btn').forEach(b =>
-      b.classList.toggle('active', Number(b.dataset.idx) === keepId));
+      setActive(b, Number(b.dataset.idx) === keepId));
     savePrefs();
-  }
+  });
 
   /* --------------------------------------------------------------- Word pool */
   function selectedWords() {
@@ -557,21 +485,39 @@
   }
 
   /* ---------------------------------------------------------- Screen routing */
-  function showScreen(id) {
+  function show(id, opts) {
     stopSpeak();
-    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    document.getElementById(id).classList.add('active');
-    document.body.classList.toggle('results-active', id === 'screen-results');
-    document.body.classList.toggle('settings-active', id === 'screen-settings');
-    document.body.classList.toggle('game-active', id === 'screen-game');
-    window.scrollTo(0, 0);
-    refreshInstall();
+    E.screens.show(id, opts);
   }
 
-  function goHome() { showScreen('screen-settings'); }
-  function restartGame() { startGame(); }
+  function clearAdvance() {
+    clearTimeout(advanceTimer);
+    advanceTimer = null;
+  }
+
+  // « Changer les listes » pendant une partie : on demande confirmation dès qu'une réponse
+  // a été donnée, pour qu'un tap raté (le bouton « Question suivante » juste au-dessus)
+  // ne fasse pas quitter la partie. Depuis le bilan, pas de confirmation.
+  function quitGame() {
+    if (scoreCorrect + scoreWrong > 0 && !window.confirm(
+      'Quitter la partie en cours ?\n(ce que tu as répondu est enregistré)')) return;
+    goHome();
+  }
+
+  function goHome() {
+    clearAdvance();
+    stopSpeak();
+    commitSession();       // ce qui a été répondu compte quand même
+    show('screen-settings');
+  }
 
   /* --------------------------------------------------------------- Game flow */
+  const feedbackEl = $('#feedback');
+  const nextBtn = $('#next-btn');
+  const cardEl = $('#question-card');
+  const mascotEl = $('#mascot');
+  const listenBtn = $('#listen-btn');
+
   function startGame(customItems) {
     let q;
     if (customItems) {
@@ -583,8 +529,8 @@
     }
     if (q.length === 0) return;
 
+    clearAdvance();
     queue = q;
-    wrongSet = new Set();
     errorCounts = {};
     slowSet = new Set();
     opTimes = {};
@@ -593,35 +539,30 @@
     scoreWrong = 0;
     totalOps = queue.length;
     mascotIdx = 0;
+    committed = false;
 
     savePrefs();
-    bumpStreak();
-    renderStreak();
-    ensureAudio();
-    updateScoreDisplay();
-    showScreen('screen-game');
+    E.sound.resume();
+    show('screen-game');
+    updateScore();
     nextQuestion();
   }
 
   function nextQuestion() {
-    if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
+    clearAdvance();
     stopSpeak();
     if (queue.length === 0) { showResults(); return; }
     answered = false;
     currentItem = queue.shift();
     window.scrollTo(0, 0);   // chaque question repart en haut de l'écran
 
-    const feedback = document.getElementById('feedback');
-    feedback.textContent = '';
-    feedback.className = 'feedback';
-    document.getElementById('next-btn').classList.remove('visible');
-    document.getElementById('question-card').classList.remove('shake');
+    feedbackEl.textContent = '';
+    feedbackEl.className = 'feedback';
+    nextBtn.classList.remove('visible');
+    cardEl.classList.remove('shake');
 
-    const listenBtn = document.getElementById('listen-btn');
-    if (listenBtn) {
-      listenBtn.hidden = !hasTTS;
-      listenBtn.textContent = '🔊 Écouter';
-    }
+    listenBtn.hidden = !hasTTS;
+    listenBtn.textContent = '🔊 Écouter';
 
     const showEn = currentItem.dir === 'en2fr';
     const promptWord = showEn ? currentItem.en : currentItem.fr;
@@ -629,19 +570,18 @@
     const answerAll = showEn ? currentItem.frAll : currentItem.enAll;
     const targetLang = showEn ? 'fr' : 'en';
 
-    document.getElementById('prompt-label').textContent = showEn ? 'Mot anglais' : 'Mot français';
-    document.getElementById('question-text').textContent = promptWord;
-    document.getElementById('prompt-hint').textContent = showEn
+    $('#prompt-label').textContent = showEn ? 'Mot anglais' : 'Mot français';
+    $('#question-text').textContent = promptWord;
+    $('#prompt-hint').textContent = showEn
       ? 'Choisis la traduction en français'
       : 'Choisis le mot en anglais';
 
     renderChoices(answerWord, answerAll, targetLang);
 
-    document.getElementById('mascot').textContent = mascots[mascotIdx % mascots.length];
+    mascotEl.textContent = D.mascots[mascotIdx % D.mascots.length];
     mascotIdx++;
 
     questionStart = Date.now();
-    updateProgress();
   }
 
   function renderChoices(correct, acceptedAll, targetLang) {
@@ -674,7 +614,7 @@
     }
 
     const options = shuffle([correct, ...candidates]);
-    const wrap = document.getElementById('choices');
+    const wrap = $('#choices');
     wrap.innerHTML = '';
 
     options.forEach((opt, idx) => {
@@ -682,16 +622,10 @@
       btn.type = 'button';
       btn.className = 'choice-btn';
 
-      const key = document.createElement('span');
-      key.className = 'choice-key';
+      const key = span('choice-key', String(idx + 1));
       key.setAttribute('aria-hidden', 'true');
-      key.textContent = String(idx + 1);
 
-      const txt = document.createElement('span');
-      txt.className = 'choice-text';
-      txt.textContent = opt;
-
-      btn.append(key, txt);
+      btn.append(key, span('choice-text', opt));
       btn.addEventListener('click', () => chooseAnswer(btn, opt, correct, accepted));
       wrap.appendChild(btn);
     });
@@ -711,7 +645,7 @@
     listStats[listName].asked++;
 
     bumpMastery(key, isRight);
-    playFeedbackSound(isRight);
+    E.sound.feedback(isRight);
 
     document.querySelectorAll('#choices .choice-btn').forEach(b => {
       b.disabled = true;
@@ -722,23 +656,19 @@
     if (!isRight) { btn.classList.remove('dim'); btn.classList.add('wrong'); }
 
     const willSpeak = speakAfter && hasTTS;
-    const listenBtn = document.getElementById('listen-btn');
-    if (listenBtn && hasTTS) listenBtn.textContent = '🔊 Réécouter';
-
-    const feedback = document.getElementById('feedback');
+    if (hasTTS) listenBtn.textContent = '🔊 Réécouter';
 
     if (isRight) {
       scoreCorrect++;
-      wrongSet.delete(key);
       listStats[listName].correct++;
       if (!(key in opTimes) || elapsed < opTimes[key]) opTimes[key] = elapsed;
-      if (elapsed > SLOW_MS) slowSet.add(key); else slowSet.delete(key);
-      const slowNote = elapsed > SLOW_MS ? ' (un peu lent 🐢)' : '';
-      feedback.textContent = `✅ Bravo ! ${pair}${slowNote}`;
-      feedback.className = 'feedback correct';
-      document.getElementById('mascot').textContent = '🎉';
-      triggerBurst(true);
-      triggerHaptic('success');
+      const slow = elapsed > D.slowMs;
+      if (slow) slowSet.add(key); else slowSet.delete(key);
+      feedbackEl.textContent = `✅ Bravo ! ${pair}${slow ? ' (un peu lent 🐢)' : ''}`;
+      feedbackEl.className = 'feedback correct';
+      mascotEl.textContent = '🎉';
+      E.fx.burst(true);
+      E.haptic('success');
       if (willSpeak) {
         // advance only once the pronunciation has actually finished (+ a short
         // pause), so the words are never cut off; 7 s hard cap as a safety net.
@@ -758,118 +688,147 @@
           advanceTimer = setTimeout(go, 450);
         });
       } else {
-        advanceTimer = setTimeout(() => { advanceTimer = null; nextQuestion(); }, 900);
+        advanceTimer = setTimeout(nextQuestion, 900);
       }
     } else {
       scoreWrong++;
-      wrongSet.add(key);
       errorCounts[key] = (errorCounts[key] || 0) + 1;
-      feedback.textContent = '❌ Presque… La bonne réponse était ';
+      feedbackEl.textContent = '❌ Presque… La bonne réponse était ';
       const strong = document.createElement('strong');
       strong.textContent = correct;
-      feedback.appendChild(strong);
-      const tail = document.createElement('span');
-      tail.textContent = `  (${pair})`;
-      feedback.appendChild(tail);
-      feedback.className = 'feedback wrong';
-      document.getElementById('mascot').textContent = '😬';
-      const card = document.getElementById('question-card');
-      card.classList.add('shake');
-      triggerHaptic('error');
-      setTimeout(() => card.classList.remove('shake'), 260);
+      feedbackEl.appendChild(strong);
+      feedbackEl.appendChild(span('', `  (${pair})`));
+      feedbackEl.className = 'feedback wrong';
+      mascotEl.textContent = '😬';
+      cardEl.classList.add('shake');
+      E.haptic('error');
+      setTimeout(() => cardEl.classList.remove('shake'), 400);
       if (willSpeak) speakCurrentPair();
-      const pos = Math.floor(Math.random() * Math.min(4, queue.length + 1)) + 1;
+      // La question ratée revient quelques questions plus loin.
+      const pos = Math.floor(Math.random() * Math.min(D.requeueSpan, queue.length + 1)) + 1;
       queue.splice(pos, 0, currentItem);
     }
 
-    updateScoreDisplay();
-    document.getElementById('next-btn').classList.add('visible');
+    updateScore();
+    nextBtn.classList.add('visible');
   }
 
-  function updateProgress() {
-    const done = totalOps + wrongSet.size - queue.length;
-    const total = totalOps + wrongSet.size;
-    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-    const remaining = Math.max(total - done, 0);
-    document.getElementById('progress-text').textContent = `${done} / ${total} • ${remaining} restantes`;
-    document.getElementById('progress-fill').style.width = `${pct}%`;
-    document.getElementById('score-remaining').textContent = String(queue.length);
+  function updateScore() {
+    const remaining = Math.max(totalOps - scoreCorrect, 0);
+    $('#score-correct').textContent = String(scoreCorrect);
+    $('#score-wrong').textContent = String(scoreWrong);
+    $('#score-remaining').textContent = String(remaining);
+    $('#progress-text').textContent = `${scoreCorrect} / ${totalOps}`;
+    $('#progress-fill').style.width = `${totalOps ? Math.round((scoreCorrect / totalOps) * 100) : 0}%`;
   }
 
-  function updateScoreDisplay() {
-    document.getElementById('score-correct').textContent = String(scoreCorrect);
-    document.getElementById('score-wrong').textContent = String(scoreWrong);
-    document.getElementById('score-remaining').textContent = String(queue.length);
-    updateProgress();
+  nextBtn.addEventListener('click', nextQuestion);
+  // Ne pas renommer go-home-game / go-home-results / restart-btn : l'ancienne version de
+  // l'appli (encore en cache chez certains) s'exécute parfois sur ce HTML pendant la mise à jour.
+  $('#go-home-game').addEventListener('click', quitGame);
+  startBtn.addEventListener('click', () => startGame());
+
+  document.addEventListener('keydown', e => {
+    if (E.screens.current() !== 'screen-game') return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 'Enter') {
+      // Avant la réponse, Entrée sur une proposition focalisée la valide (clic natif).
+      if (!answered) return;
+      // Un bouton hors du flux de jeu (« Écouter », « Changer les listes ») garde son
+      // comportement. Pour les autres on prend la main et on annule le « clic » que
+      // le navigateur enverrait en plus : sinon la question avance deux fois.
+      const button = e.target.closest && e.target.closest('button');
+      if (button && !button.closest('#choices, #next-btn')) return;
+      e.preventDefault();
+      nextQuestion();
+      return;
+    }
+    if (!answered && /^[1-9]$/.test(e.key)) {
+      const target = document.querySelectorAll('#choices .choice-btn')[Number(e.key) - 1];
+      if (target) target.click();
+    }
+  });
+
+  /* -------------------------------------------------------- Enregistrement */
+  // Une partie est enregistrée une seule fois : à la fin, ou quand on la quitte
+  // en cours de route (ce qui a été répondu compte quand même). Les mots appris
+  // (mastery) sont, eux, enregistrés à chaque réponse.
+  function commitSession() {
+    if (committed) return;
+    committed = true;
+    const seen = scoreCorrect + scoreWrong;
+    if (!seen) return;
+    const hist = loadErrorHistory();
+    Object.keys(errorCounts).forEach((k) => { hist[k] = (hist[k] || 0) + errorCounts[k]; });
+    E.store.save('errors', hist);
+    E.history.bumpStreak();
+    E.history.logDaily(seen, scoreCorrect);
+    E.history.renderStreak('#streak-badge');
+    requestPersistence();
+  }
+
+  // Demande au navigateur de ne pas purger le stockage local (historique, série).
+  // Chrome l'accorde d'office aux applis installées ; Firefox interroge
+  // l'utilisateur, d'où un seul essai, après une première partie plutôt qu'au
+  // démarrage. Sans effet là où l'API n'existe pas.
+  let persistAsked = false;
+  function requestPersistence() {
+    if (persistAsked || !(navigator.storage && navigator.storage.persist)) return;
+    persistAsked = true;
+    navigator.storage.persisted()
+      .then((yes) => yes || navigator.storage.persist())
+      .catch(() => { /* ignore */ });
   }
 
   /* ----------------------------------------------------------------- Results */
   function showResults() {
     const total = scoreCorrect + scoreWrong;
     const rate = total > 0 ? Math.round((scoreCorrect / total) * 100) : 100;
-    document.getElementById('res-correct').textContent = String(scoreCorrect);
-    document.getElementById('res-wrong').textContent = String(scoreWrong);
-    document.getElementById('res-rate').textContent = `${rate}%`;
+    const tier = D.tiers.find((t) => rate >= t.min) || D.tiers[D.tiers.length - 1];
 
-    let emoji, title, sub;
-    if (rate === 100) { emoji = '🏆'; title = 'Parfait !'; sub = 'Tout juste du premier coup, champion !'; }
-    else if (rate >= 80) { emoji = '⭐'; title = 'Excellent !'; sub = `${rate}% de bonnes réponses, c'est super !`; }
-    else if (rate >= 60) { emoji = '👍'; title = 'Bien joué !'; sub = `${rate}% de bonnes réponses, continue comme ça !`; }
-    else { emoji = '💪'; title = 'Courage !'; sub = `${rate}% — encore un peu d'entraînement et ça rentrera !`; }
+    $('#res-correct').textContent = String(scoreCorrect);
+    $('#res-wrong').textContent = String(scoreWrong);
+    $('#res-rate').textContent = `${rate}%`;
+    $('#result-emoji').textContent = tier.emoji;
+    $('#result-title').textContent = tier.title;
+    $('#result-subtitle').textContent = tier.sub.replace('{rate}', String(rate));
 
-    document.getElementById('result-emoji').textContent = emoji;
-    document.getElementById('result-title').textContent = title;
-    document.getElementById('result-subtitle').textContent = sub;
-
-    persistSessionErrors();
-    logDaily(total, scoreCorrect);
-    renderWeek();
+    commitSession();
+    E.history.renderWeek({ bars: '#week-bars', block: '#history-week', summary: '#week-summary' });
     renderListSummary();
     renderErrorReport();
+    $('#review-btn').disabled = Object.keys(errorCounts).length === 0 && slowSet.size === 0;
 
-    const hasMisses = Object.keys(errorCounts).length > 0 || slowSet.size > 0;
-    document.getElementById('review-btn').disabled = !hasMisses;
-
-    showScreen('screen-results');
-    triggerBurst(rate >= 80);
+    show('screen-results');
+    E.fx.burst(rate >= 80);
+    E.announce(`Partie terminée. ${tier.title} ${scoreCorrect} bonnes réponses, ${scoreWrong} erreurs.`);
   }
 
+  const barColor = (pct) => (pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--yellow)' : 'var(--red)');
+
   function renderListSummary() {
-    const wrap = document.getElementById('list-summary-list');
-    const block = document.getElementById('list-summary');
+    const wrap = $('#list-summary-list');
+    const block = $('#list-summary');
     wrap.innerHTML = '';
 
     const names = Object.keys(listStats);
-    if (names.length === 0) { block.style.display = 'none'; return; }
-    block.style.display = '';
+    block.hidden = names.length === 0;
     names.sort((a, b) => a.localeCompare(b, 'fr'));
 
     names.forEach(name => {
       const { asked, correct } = listStats[name];
       const pct = asked > 0 ? Math.round((correct / asked) * 100) : 100;
-      const color = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--yellow)' : 'var(--red)';
 
       const row = document.createElement('div');
       row.className = 'list-summary-row';
-
-      const tName = document.createElement('span');
-      tName.className = 'tname';
-      tName.textContent = (LIST_ICON[name] ? LIST_ICON[name] + ' ' : '') + name;
-
-      const tBar = document.createElement('span');
-      tBar.className = 'tbar';
-      const fill = document.createElement('span');
-      fill.className = 'tbar-fill';
+      const fill = span('tbar-fill', '');
       fill.style.width = `${pct}%`;
-      fill.style.background = color;
-      tBar.appendChild(fill);
-
-      const tPct = document.createElement('span');
-      tPct.className = 'tpct';
-      tPct.textContent = `${pct}%`;
-      tPct.style.color = color;
-
-      row.append(tName, tBar, tPct);
+      fill.style.background = barColor(pct);
+      const bar = span('tbar', '');
+      bar.appendChild(fill);
+      const pctEl = span('tpct', `${pct}%`);
+      pctEl.style.color = barColor(pct);
+      row.append(span('tname', (LIST_ICON[name] ? LIST_ICON[name] + ' ' : '') + name), bar, pctEl);
       wrap.appendChild(row);
     });
   }
@@ -879,21 +838,19 @@
   }
 
   function renderErrorReport() {
-    const listEl = document.getElementById('error-list');
+    const listEl = $('#error-list');
     listEl.innerHTML = '';
 
-    const history = loadHistory();
     const keys = new Set([...Object.keys(errorCounts), ...slowSet]);
-
     if (keys.size === 0) {
-      listEl.innerHTML = '<div class="no-errors">🎉 Aucune erreur, bravo !</div>';
+      listEl.appendChild(span('no-errors', '🎉 Aucune erreur, bravo !'));
       return;
     }
 
+    const history = loadErrorHistory();
     const entries = [...keys].sort((ka, kb) => {
-      const ea = errorCounts[ka] || 0, eb = errorCounts[kb] || 0;
-      if (eb !== ea) return eb - ea;
-      return (opTimes[kb] || 0) - (opTimes[ka] || 0);
+      const diff = (errorCounts[kb] || 0) - (errorCounts[ka] || 0);
+      return diff || (opTimes[kb] || 0) - (opTimes[ka] || 0);
     });
 
     entries.forEach(key => {
@@ -905,52 +862,25 @@
       const row = document.createElement('div');
       row.className = 'error-row';
 
-      const op = document.createElement('span');
-      op.className = 'op';
-      const enS = document.createElement('span');
-      enS.className = 'en';
-      enS.textContent = enText;
-      const sep = document.createElement('span');
-      sep.className = 'sep';
-      sep.textContent = '→';
-      const frS = document.createElement('span');
-      frS.className = 'fr';
-      frS.textContent = frText;
-      op.append(enS, sep, frS);
+      const op = span('op', '');
+      op.append(span('en', enText), span('sep', '→'), span('fr', frText));
+      if (key in opTimes) op.append(span('time', `⏱ ${fmtTime(opTimes[key])}`));
 
-      if (key in opTimes) {
-        const t = document.createElement('span');
-        t.className = 'time';
-        t.textContent = `⏱ ${fmtTime(opTimes[key])}`;
-        op.appendChild(t);
-      }
-
-      const meta = document.createElement('span');
-      meta.className = 'error-row-meta';
-
-      if (history[key]) {
-        const h = document.createElement('span');
-        h.className = 'history';
-        h.textContent = `total : ${history[key]}`;
-        meta.appendChild(h);
-      }
-
-      const badge = document.createElement('span');
-      badge.className = 'count';
-      if (count > 0) {
-        badge.textContent = count > 1 ? `${count} erreurs` : '1 erreur';
-      } else {
+      const meta = span('error-row-meta', '');
+      if (history[key]) meta.append(span('history', `total : ${history[key]}`));
+      const badge = span('count', count > 1 ? `${count} erreurs` : '1 erreur');
+      if (count === 0) {
         badge.textContent = '🐢 hésitation';
         badge.classList.add('error-badge--hesitant');
       }
-      meta.appendChild(badge);
+      meta.append(badge);
 
       row.append(op, meta);
       listEl.appendChild(row);
     });
   }
 
-  function reviewErrors() {
+  $('#review-btn').addEventListener('click', () => {
     const keys = new Set([...Object.keys(errorCounts), ...slowSet]);
     const items = [];
     keys.forEach(key => {
@@ -961,48 +891,10 @@
     });
     if (items.length === 0) return;
     startGame(items);
-  }
-
-  /* ------------------------------------------------------------- Effects */
-  function triggerHaptic(type = 'tap') {
-    if (!('vibrate' in navigator)) return;
-    if (type === 'success') navigator.vibrate([20, 35, 25]);
-    else if (type === 'error') navigator.vibrate([30, 25, 60]);
-    else navigator.vibrate(10);
-  }
-
-  function triggerBurst(positive) {
-    const wrap = document.getElementById('burst');
-    wrap.innerHTML = '';
-    const colors = positive
-      ? ['#FFD60A', '#4ADE80', '#60A5FA', '#F472B6', '#FBBF24']
-      : ['#FF6B6B', '#F87171', '#FCA5A5'];
-    const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
-    const n = positive ? 28 : 12;
-    for (let i = 0; i < n; i++) {
-      const p = document.createElement('div');
-      p.className = 'burst-particle';
-      const angle = (i / n) * 360;
-      const dist = positive ? (80 + Math.random() * 160) : (40 + Math.random() * 80);
-      const rad = angle * Math.PI / 180;
-      p.style.left = `${cx}px`;
-      p.style.top = `${cy}px`;
-      p.style.background = colors[i % colors.length];
-      p.style.width = `${positive ? 10 : 7}px`;
-      p.style.height = `${positive ? 10 : 7}px`;
-      p.style.setProperty('--dx', `${Math.cos(rad) * dist}px`);
-      p.style.setProperty('--dy', `${Math.sin(rad) * dist}px`);
-      p.style.animationDuration = positive ? '0.9s' : '0.6s';
-      wrap.appendChild(p);
-    }
-    setTimeout(() => { wrap.innerHTML = ''; }, 1000);
-  }
-
-  function updateViewportScale() {
-    const vh = window.innerHeight || document.documentElement.clientHeight;
-    const scale = Math.min(1, Math.max(0.75, vh / 820));
-    document.documentElement.style.setProperty('--app-scale', scale.toFixed(3));
-  }
+  });
+  $('#print-btn').addEventListener('click', () => window.print());
+  $('#restart-btn').addEventListener('click', () => startGame());
+  $('#go-home-results').addEventListener('click', goHome);
 
   /* ---------------------------------------------------- Écouter (voix du navigateur) */
   const hasTTS = ('speechSynthesis' in window) && ('SpeechSynthesisUtterance' in window);
@@ -1084,154 +976,35 @@
     if (hasTTS) { try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ } }
   }
 
-  /* ------------------------------------------------------------- Keyboard */
-  document.addEventListener('keydown', e => {
-    if (!document.getElementById('screen-game').classList.contains('active')) return;
-    if (e.key === 'Enter') {
-      if (answered) nextQuestion();
-      return;
-    }
-    if (!answered && /^[1-9]$/.test(e.key)) {
-      const btns = document.querySelectorAll('#choices .choice-btn');
-      const target = btns[Number(e.key) - 1];
-      if (target) target.click();
+  listenBtn.addEventListener('click', () => {
+    if (!currentItem) return;
+    if (answered) {
+      // symmetric: shown word in its language, then the answer in its language
+      speakCurrentPair();
+    } else {
+      // before answering: only the shown word, so we don't give the answer away
+      const showEn = currentItem.dir === 'en2fr';
+      speak(showEn ? currentItem.en : currentItem.fr, showEn ? 'en' : 'fr');
     }
   });
 
-  /* --------------------------------------------------------------- Wire up */
-  document.getElementById('app-version').textContent = APP_VERSION;
-  document.getElementById('select-all-btn').addEventListener('click', selectAll);
-  document.getElementById('deselect-btn').addEventListener('click', deselectAll);
-  document.getElementById('start-btn').addEventListener('click', () => startGame());
-  document.getElementById('go-home-game').addEventListener('click', goHome);
-  document.getElementById('go-home-results').addEventListener('click', goHome);
-  document.getElementById('restart-btn').addEventListener('click', restartGame);
-  document.getElementById('next-btn').addEventListener('click', nextQuestion);
-  document.getElementById('review-btn').addEventListener('click', reviewErrors);
-
-  const printBtn = document.getElementById('print-btn');
-  if (printBtn) printBtn.addEventListener('click', () => window.print());
-
-  const listenBtn = document.getElementById('listen-btn');
-  if (listenBtn) {
-    if (!hasTTS) listenBtn.hidden = true;
-    listenBtn.addEventListener('click', () => {
-      if (!currentItem) return;
-      if (answered) {
-        // symmetric: shown word in its language, then the answer in its language
-        speakCurrentPair();
-      } else {
-        // before answering: only the shown word, so we don't give the answer away
-        const showEn = currentItem.dir === 'en2fr';
-        speak(showEn ? currentItem.en : currentItem.fr, showEn ? 'en' : 'fr');
-      }
-    });
-  }
-
-  /* ----------------------------------- Bandeau "Installer l'appli" (en haut) */
-  (function setupInstall() {
-    const row = document.getElementById('install-row');
-    const btn = document.getElementById('install-btn');
-    const dismiss = document.getElementById('install-dismiss');
-    const hint = document.getElementById('install-hint');
-    if (!row || !btn) return;
-
-    const HIDE_KEY = 'vocab_install_hidden';
-    let deferred = null;
-    let mode = null;               // null | 'prompt' | 'ios'
-    let hiddenByUser = false;
-    try { hiddenByUser = localStorage.getItem(HIDE_KEY) === '1'; } catch (e) { /* ignore */ }
-
-    function isStandalone() {
-      return window.matchMedia('(display-mode: standalone)').matches
-        || window.navigator.standalone === true
-        || document.referrer.indexOf('android-app://') === 0;
-    }
-    const iOS = /iphone|ipad|ipod/i.test(navigator.userAgent)
-      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const iOSSafari = iOS && /safari/i.test(navigator.userAgent)
-      && !/crios|fxios|edgios|opios|android/i.test(navigator.userAgent);
-
-    // shown only on the home screen, and only when actually installable
-    refreshInstall = function () {
-      const onHome = document.getElementById('screen-settings').classList.contains('active');
-      const show = !!mode && !hiddenByUser && !isStandalone() && onHome;
-      row.hidden = !show;
-      if (!show) hint.hidden = true;
-      if (show) row.dataset.mode = mode;
+  /* ------------------------------------------------------------ Mises à jour */
+  // Une nouvelle version n'est appliquée que depuis l'accueil : jamais en plein
+  // milieu d'une partie ni pendant la lecture du bilan. Le service worker prend
+  // la main (apply), puis la page se recharge quand il contrôle réellement la page.
+  E.on('sw:updateready', (update) => {
+    let off = null;
+    const applyIfHome = () => {
+      if (E.screens.current() !== 'screen-settings') return;
+      if (off) off();
+      navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload(), { once: true });
+      update.apply();
     };
-    function forget() {
-      hiddenByUser = true;
-      try { localStorage.setItem(HIDE_KEY, '1'); } catch (e) { /* ignore */ }
-      refreshInstall();
-    }
+    off = E.on('screen:show', applyIfHome);
+    applyIfHome();
+  });
 
-    window.addEventListener('beforeinstallprompt', e => {
-      e.preventDefault();
-      deferred = e;
-      mode = 'prompt';
-      refreshInstall();
-    });
-    window.addEventListener('appinstalled', () => {
-      deferred = null;
-      mode = null;
-      forget();
-    });
-
-    btn.addEventListener('click', async () => {
-      if (mode === 'ios') {
-        hint.hidden = !hint.hidden;
-        hint.textContent = "Sur iPhone/iPad : touche « Partager » (le carré avec une flèche vers le haut), "
-          + "puis « Sur l'écran d'accueil ».";
-        return;
-      }
-      if (!deferred) return;
-      btn.disabled = true;
-      deferred.prompt();
-      try { await deferred.userChoice; } catch (e) { /* ignore */ }
-      deferred = null;
-      mode = null;
-      btn.disabled = false;
-      refreshInstall();
-    });
-    if (dismiss) dismiss.addEventListener('click', forget);
-
-    // iOS Safari never fires beforeinstallprompt: offer the manual path.
-    if (iOSSafari) mode = 'ios';
-    refreshInstall();
-  })();
-
+  /* ---------------------------------------------------------------- Démarrage */
   initSettings();
-  renderStreak();
-  showScreen('screen-settings');
-  updateViewportScale();
-  window.addEventListener('resize', updateViewportScale);
-
-  /* --------------------------------------------------------- Service worker */
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', async () => {
-      try {
-        const reloadKey = `sw-reload:${APP_VERSION}`;
-        const registration = await navigator.serviceWorker.register(`service-worker.js?v=${APP_VERSION}`);
-        if (registration.waiting) {
-          registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-        }
-        registration.addEventListener('updatefound', () => {
-          const newWorker = registration.installing;
-          if (!newWorker) return;
-          newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              newWorker.postMessage({ type: 'SKIP_WAITING' });
-              if (!sessionStorage.getItem(reloadKey)) {
-                sessionStorage.setItem(reloadKey, '1');
-                window.location.reload();
-              }
-            }
-          });
-        });
-      } catch (err) {
-        console.warn('Service worker registration failed:', err);
-      }
-    });
-  }
+  E.screens.show('screen-settings', { focus: false });
 })();

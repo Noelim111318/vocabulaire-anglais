@@ -1,11 +1,18 @@
 {
+  "id": "/vocabulaire-anglais/index.html",
   "name": "Vocabulaire d'Anglais",
   "short_name": "Vocabulaire",
   "description": "Apprends du vocabulaire anglais en choisissant la bonne traduction, avec un rapport d'erreurs et un bilan par liste.",
+  "version": "v1.2.0",
   "lang": "fr",
+  "dir": "ltr",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
   "orientation": "portrait",
   "background_color": "#1A0A2E",
   "theme_color": "#1A0A2E",

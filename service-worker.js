@@ -1,82 +1,37 @@
-// Service worker for the "Vocabulaire d'Anglais" PWA.
-// Caches the app shell so the game works fully offline once loaded.
+/* Vocabulaire d'Anglais — service worker.
+ * Toute la logique (precache tolerant, cache d'abord + revalidation, purge,
+ * cache runtime) est dans engine/sw-core.js. Ici on declare juste l'identite
+ * du cache et la liste des fichiers de la coque.
+ *
+ * >>> A chaque livraison : ./tools/bump-version.sh vX.Y.Z
+ *     (bumpe APP_VERSION ici + index.html + app.js + manifest.json d'un coup)
+ *     puis ajoute tout nouveau fichier statique a APP_SHELL ci-dessous.
+ *
+ * APP_SLUG reste « vocab-anglais » (prefixe des anciens caches) : le moteur
+ * purge ainsi tout seul l'ancien cache « vocab-anglais-v1.1.1 ».
+ */
+self.APP_SLUG = 'vocab-anglais';
+self.APP_VERSION = 'v1.2.0';
 
-const CACHE_NAME = 'vocab-anglais-v1.1.1';
-
-// Files that make up the app shell.
-const APP_SHELL = [
+self.APP_SHELL = [
   './',
   './index.html',
   './app.css',
   './app.js',
+  './data.js',
   './words.js',
   './manifest.json',
-  './fonts/nunito-latin.woff2',
-  './fonts/nunito-latin-ext.woff2',
+  './diag.html',
+  './favicon.ico',
+  './engine/engine.js',
+  './engine/engine.css',
+  './engine/sw-core.js',
+  './engine/fonts/nunito-latin.woff2',
+  './engine/fonts/nunito-latin-ext.woff2',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-512-maskable.png',
   './icons/apple-touch-icon.png'
 ];
 
-// Install: pre-cache the app shell.
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL))
-  );
-  self.skipWaiting();
-});
-
-self.addEventListener('message', event => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
-});
-
-// Activate: clean up old caches from previous versions.
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(
-        keys
-          .filter(k => k !== CACHE_NAME && k.startsWith('vocab-anglais-'))
-          .map(k => caches.delete(k))
-      )
-    )
-  );
-  self.clients.claim();
-});
-
-// Fetch: network-first for HTML navigations to avoid stale pages after a push,
-// while keeping static assets cached for offline use.
-self.addEventListener('fetch', event => {
-  const req = event.request;
-  if (req.method !== 'GET') return;
-
-  if (req.mode === 'navigate') {
-    event.respondWith(
-      fetch(req)
-        .then(resp => {
-          if (resp && resp.ok) {
-            const clone = resp.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
-          }
-          return resp;
-        })
-        .catch(() => caches.match(req).then(cached => cached || caches.match('./index.html')))
-    );
-    return;
-  }
-
-  event.respondWith(
-    fetch(req)
-      .then(resp => {
-        if (resp && resp.status === 200 && new URL(req.url).origin === self.location.origin) {
-          const clone = resp.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
-        }
-        return resp;
-      })
-      .catch(() => caches.match(req))
-  );
-});
+importScripts('./engine/sw-core.js');

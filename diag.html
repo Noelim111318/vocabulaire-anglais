@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<title>Diagnostic</title>
+<style>
+  body { font: 15px/1.45 system-ui, sans-serif; margin: 0; padding: 14px 14px 32px; background: #fff; color: #111; }
+  h1 { font-size: 1.1rem; margin: 6px 0 4px; }
+  p { margin: 4px 0 12px; color: #444; }
+  a { color: #1a73e8; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  button { font: inherit; padding: 12px 16px; border: 0; border-radius: 10px; background: #1a73e8; color: #fff; }
+  button[hidden] { display: none; }
+  pre { white-space: pre-wrap; word-break: break-all; background: #f3f4f6; padding: 10px; border-radius: 8px; font-size: 13px; user-select: text; -webkit-user-select: text; }
+  @media (prefers-color-scheme: dark) { body { background: #111; color: #eee; } p { color: #aaa; } pre { background: #222; } a { color: #8ab4f8; } }
+</style>
+</head>
+<body>
+<a href="index.html">← Retour à l'appli</a>
+<h1>Diagnostic</h1>
+<p>Lecture seule : cette page affiche ce que l'appli a en mémoire sur cet appareil. Rien n'est modifié ni envoyé. Touche « Copier » (ou « Partager ») puis colle le rapport dans la conversation.</p>
+<div class="row">
+  <button id="copy" type="button">Copier le rapport</button>
+  <button id="share" type="button" hidden>Partager</button>
+</div>
+<pre id="out">Chargement…</pre>
+<script>
+(async function () {
+  var L = [];
+  var add = function (s) { L.push(s === undefined ? '' : s); };
+  var safe = async function (label, fn) { try { return await fn(); } catch (e) { add(label + ' : erreur ' + e); return null; } };
+
+  add('Heure       : ' + new Date().toString());
+  add('Adresse     : ' + location.href);
+  add('Navigateur  : ' + navigator.userAgent);
+  add('Mode appli  : ' + (matchMedia('(display-mode: standalone)').matches ? 'installée (standalone)' : 'onglet du navigateur'));
+
+  add('\n== localStorage de ' + location.origin);
+  var keys = [];
+  try { for (var i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i)); } catch (e) { add('inaccessible : ' + e); }
+  keys.sort();
+  add(keys.length + ' clé(s) au total');
+  var MINE = /^(vocab-anglais:|vocab_)/;
+  var ours = keys.filter(function (k) { return MINE.test(k); });
+  var others = keys.filter(function (k) { return !MINE.test(k) && !/^diag:/.test(k); });
+  add('\n-- clés de l\'appli (valeurs) : ' + ours.length);
+  if (!ours.length) add('(aucune)');
+  // Les valeurs très longues (mots appris) sont tronquées : on garde la taille et le début.
+  ours.forEach(function (k) {
+    var v = localStorage.getItem(k);
+    add(k + ' [' + v.length + ' car.] = ' + (v.length > 500 ? v.slice(0, 500) + ' … (tronqué)' : v));
+  });
+  add('\n-- autres clés (noms seulement, valeurs non affichées) : ' + others.length);
+  add(others.length ? others.join('\n') : '(aucune)');
+
+  add('\n== Journal des ouvertures (clé diag:log, les plus récentes en bas)');
+  add('heure locale | appli | version | mode | clés de progression présentes à l\'ouverture');
+  var log = [];
+  try { log = JSON.parse(localStorage.getItem('diag:log') || '[]'); } catch (e) { add('journal illisible : ' + e); }
+  if (!log.length) add('(vide)');
+  log.forEach(function (e) {
+    add(new Date(e.t).toLocaleString('fr-FR') + ' | ' + e.a + ' | ' + e.v + ' | ' + (e.m ? 'installée' : 'onglet') + ' | ' + (e.k || 'AUCUNE'));
+  });
+
+  add('\n== Espace de stockage');
+  if (navigator.storage) {
+    var est = await safe('estimate', function () { return navigator.storage.estimate(); });
+    if (est) add('utilisé : ' + (est.usage / 1024).toFixed(1) + ' Ko sur ' + Math.round(est.quota / 1048576) + ' Mo');
+    var per = await safe('persisted', function () { return navigator.storage.persisted(); });
+    add('persistant : ' + per);
+  } else add('API navigator.storage absente');
+
+  add('\n== Service workers');
+  if (navigator.serviceWorker) {
+    var regs = await safe('registrations', function () { return navigator.serviceWorker.getRegistrations(); }) || [];
+    if (!regs.length) add('(aucun)');
+    regs.forEach(function (r) {
+      ['active', 'waiting', 'installing'].forEach(function (s) {
+        if (r[s]) add(r.scope + '  ' + s + '  ' + r[s].scriptURL + '  (' + r[s].state + ')');
+      });
+    });
+  } else add('API absente');
+
+  add('\n== Caches');
+  if (window.caches) {
+    var names = await safe('caches', function () { return caches.keys(); }) || [];
+    if (!names.length) add('(aucun)');
+    for (var n = 0; n < names.length; n++) {
+      var c = await caches.open(names[n]); var e2 = await c.keys();
+      add(names[n] + ' : ' + e2.length + ' fichier(s)');
+    }
+  } else add('API absente');
+
+  var text = L.join('\n');
+  document.getElementById('out').textContent = text;
+
+  // Copie : API moderne, sinon repli par sélection (certains contextes refusent l'une ou l'autre).
+  function fallbackCopy() {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+  var copyBtn = document.getElementById('copy');
+  copyBtn.addEventListener('click', function () {
+    var done = function (ok) { copyBtn.textContent = ok ? 'Copié ✓' : 'Copie impossible : sélectionne le texte ci-dessous'; };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(fallbackCopy()); });
+    } else done(fallbackCopy());
+  });
+  var shareBtn = document.getElementById('share');
+  if (navigator.share) {
+    shareBtn.hidden = false;
+    shareBtn.addEventListener('click', function () {
+      navigator.share({ title: 'Diagnostic tables', text: text }).catch(function () { /* annulé */ });
+    });
+  }
+})();
+</script>
+</body>
+</html>

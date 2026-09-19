@@ -1,39 +1,48 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" dir="ltr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Vocabulaire d'Anglais</title>
-  <meta name="description" content="Apprends du vocabulaire anglais en choisissant la bonne traduction, avec un rapport d'erreurs.">
+  <meta name="description" content="Apprends du vocabulaire anglais en choisissant la bonne traduction, avec un rapport d'erreurs et un bilan par liste.">
+  <meta name="app-version" content="v1.2.0">
+  <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#1A0A2E">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Vocabulaire">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
 
-<div class="stars" id="stars"></div>
+<a class="skip-link" href="#main">Aller au contenu</a>
 
+<div class="stars" id="stars"></div>
 <div class="burst-container" id="burst"></div>
 
-<div class="container">
+<main class="container" id="main">
   <div class="install-row" id="install-row" hidden>
-    <button class="install-btn" id="install-btn" type="button">📲 Installer l'appli</button>
+    <button class="install-btn" id="install-btn" type="button" aria-label="Installer l'application">📲 Installer l'appli</button>
     <button class="install-dismiss" id="install-dismiss" type="button">Masquer</button>
+    <p class="install-hint" id="install-hint" role="status" hidden></p>
   </div>
-  <p class="install-hint" id="install-hint" hidden></p>
 
   <div class="header">
-    <div class="version-badge" id="app-version">v1.1.1</div>
-    <h1>⭐ Vocabulaire d'Anglais</h1>
+    <div class="version-badge" id="app-version">v1.2.0</div>
+    <h1>Vocabulaire d'Anglais</h1>
     <p>Apprends de nouveaux mots à ton rythme !</p>
     <div class="streak-badge" id="streak-badge" hidden></div>
   </div>
 
-  <!-- SCREEN 1 : Settings -->
+  <!-- ECRAN 1 : accueil / choix des listes et réglages -->
   <div class="screen active" id="screen-settings">
-    <div class="settings-panel" id="settings-panel">
+    <div class="panel" id="settings-panel">
       <h2>Choisir les listes</h2>
       <div class="level-picker" id="level-picker" role="group" aria-label="Niveau de vocabulaire">
         <button class="level-btn" data-level="primaire" type="button">Primaire</button>
@@ -42,20 +51,20 @@
       </div>
       <div class="lists-grid" id="lists-grid"></div>
       <div class="settings-actions">
-        <button class="btn-select-all" id="select-all-btn">Tout sélectionner</button>
-        <button class="btn-deselect" id="deselect-btn">Tout décocher</button>
+        <button class="btn-mini" id="select-all-btn" type="button">Tout sélectionner</button>
+        <button class="btn-mini btn-mini--dim" id="deselect-btn" type="button">Tout décocher</button>
       </div>
 
-      <h2 class="difficulty-title">Difficulté</h2>
-      <p class="difficulty-help" id="difficulty-help">Nombre de propositions à chaque question.</p>
+      <h2 class="section-title">Difficulté</h2>
+      <p class="section-help" id="difficulty-help">Nombre de propositions à chaque question.</p>
       <div class="difficulty-picker" id="difficulty-picker" role="group" aria-label="Difficulté">
-        <button class="difficulty-btn" data-choices="3">Facile<span>3 choix</span></button>
-        <button class="difficulty-btn" data-choices="4">Moyen<span>4 choix</span></button>
-        <button class="difficulty-btn" data-choices="6">Difficile<span>6 choix</span></button>
+        <button class="difficulty-btn" data-choices="3" type="button">Facile<span>3 choix</span></button>
+        <button class="difficulty-btn" data-choices="4" type="button">Moyen<span>4 choix</span></button>
+        <button class="difficulty-btn" data-choices="6" type="button">Difficile<span>6 choix</span></button>
       </div>
 
-      <h2 class="difficulty-title">Longueur de la partie</h2>
-      <p class="difficulty-help">Nombre de questions posées (tirées au hasard parmi les listes cochées).</p>
+      <h2 class="section-title">Longueur de la partie</h2>
+      <p class="section-help">Nombre de questions posées (tirées au hasard parmi les listes cochées).</p>
       <div class="length-picker" id="length-picker" role="group" aria-label="Longueur de la partie">
         <button class="length-btn" data-length="10" type="button">10</button>
         <button class="length-btn" data-length="20" type="button">20</button>
@@ -63,7 +72,7 @@
         <button class="length-btn" data-length="all" type="button">Tous</button>
       </div>
 
-      <h2 class="difficulty-title">Options</h2>
+      <h2 class="section-title">Options</h2>
       <label class="option-toggle" id="smart-toggle-wrap">
         <input type="checkbox" id="smart-toggle">
         <span>🧠 Entraînement intelligent <span class="opt-note">(revoir surtout les mots pas encore acquis)</span></span>
@@ -80,14 +89,22 @@
         <input type="checkbox" id="sound-toggle">
         <span>🔔 Petits sons quand on répond</span>
       </label>
-
-      <button class="reset-progress" id="reset-progress" type="button">Réinitialiser la progression</button>
     </div>
-    <button class="start-btn" id="start-btn">🚀 C'est parti !</button>
+    <button class="btn btn--primary btn--big" id="start-btn" type="button">🚀 C'est parti !</button>
+
+    <div class="home-footer">
+      <button class="reset-progress" id="reset-progress" type="button">Réinitialiser la progression</button>
+      <a class="diag-link" href="diag.html">Diagnostic</a>
+    </div>
   </div>
 
-  <!-- SCREEN 2 : Game -->
+  <!-- ECRAN 2 : jeu -->
   <div class="screen" id="screen-game">
+    <h2 class="sr-only">Question en cours</h2>
+
+    <!-- En haut, loin des propositions et de « Question suivante » : un tap raté ne doit pas quitter la partie. -->
+    <button class="btn btn--ghost quit-top" id="go-home-game" type="button">← Changer les listes</button>
+
     <div class="progress-wrap">
       <div class="progress-info">
         <span>Progression</span>
@@ -113,15 +130,14 @@
 
     <div class="feedback" id="feedback" role="status" aria-live="polite"></div>
 
-    <button class="next-btn" id="next-btn">Question suivante →</button>
+    <button class="next-btn" id="next-btn" type="button">Question suivante →</button>
 
-    <button class="ghost-link" id="go-home-game">← Changer les listes</button>
   </div>
 
-  <!-- SCREEN 3 : Results -->
+  <!-- ECRAN 3 : bilan -->
   <div class="screen" id="screen-results">
     <div class="results-screen">
-      <div class="big-emoji" id="result-emoji">🏆</div>
+      <div class="big-emoji" id="result-emoji" aria-hidden="true">🏆</div>
       <h2 id="result-title">Bravo !</h2>
       <p id="result-subtitle"></p>
       <div class="results-grid">
@@ -130,34 +146,36 @@
         <div class="result-item result-item--wide"><div class="n" id="res-rate">0%</div><div class="l">🎯 Taux de réussite</div></div>
       </div>
 
-      <div class="history-week" id="history-week" hidden>
-        <h3>📅 7 derniers jours</h3>
+      <div class="report-block" id="history-week" hidden>
+        <h3 class="report-title report-title--blue">📅 7 derniers jours</h3>
         <div class="week-bars" id="week-bars"></div>
         <p class="week-summary" id="week-summary"></p>
       </div>
 
-      <div class="list-summary" id="list-summary">
-        <h3>📊 Bilan par liste</h3>
+      <div class="report-block" id="list-summary">
+        <h3 class="report-title report-title--blue">📊 Bilan par liste</h3>
         <div id="list-summary-list"></div>
       </div>
 
-      <div class="error-report" id="error-report">
-        <h3>📋 Mots à revoir</h3>
+      <div class="report-block" id="error-report">
+        <h3 class="report-title report-title--red">📋 Mots à revoir</h3>
         <div class="error-list" id="error-list"></div>
       </div>
 
       <div class="results-actions">
-        <button class="action-btn review" id="review-btn">🔁 Réviser mes erreurs</button>
-        <button class="action-btn print" id="print-btn">🖨️ Imprimer le rapport</button>
+        <button class="action-btn review" id="review-btn" type="button">🔁 Réviser mes erreurs</button>
+        <button class="action-btn print" id="print-btn" type="button">🖨️ Imprimer le rapport</button>
       </div>
 
-      <button class="restart-btn" id="restart-btn">🔄 Recommencer</button>
-      <button class="ghost-link results" id="go-home-results">← Choisir d'autres listes</button>
+      <button class="btn btn--primary btn--big" id="restart-btn" type="button">🔄 Recommencer</button>
+      <button class="btn btn--ghost" id="go-home-results" type="button">← Choisir d'autres listes</button>
     </div>
   </div>
-</div>
+</main>
 
 <script src="words.js"></script>
+<script src="data.js"></script>
+<script src="engine/engine.js"></script>
 <script src="app.js"></script>
 
 </body>
