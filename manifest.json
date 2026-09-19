@@ -3,7 +3,7 @@
   "name": "Vocabulaire d'Anglais",
   "short_name": "Vocabulaire",
   "description": "Apprends du vocabulaire anglais en choisissant la bonne traduction, avec un rapport d'erreurs et un bilan par liste.",
-  "version": "v1.2.0",
+  "version": "v1.3.0",
   "lang": "fr",
   "dir": "ltr",
   "start_url": "./index.html",

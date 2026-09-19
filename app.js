@@ -7,7 +7,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = 'v1.2.0';
+  const APP_VERSION = 'v1.3.0';
   const APP_ID = 'vocab-anglais';
   const E = window.AppEngine;
   const D = window.APP_DATA;
@@ -194,6 +194,7 @@
   let levelFilter = 'primaire';   // 'primaire' | 'avance' | 'tout'
   let smartMode = true;
   let bothDirections = false;
+  let direction = 'mix';        // sens des questions : 'mix' (au hasard) | 'en2fr' | 'fr2en'
   let soundOn = true;
   let mastery = {};
   let committed = true;         // la partie en cours a-t-elle déjà été enregistrée ?
@@ -209,7 +210,7 @@
     E.store.save('prefs', {
       lists: names, difficulty, level: levelFilter, length: sessionLength,
       speak: speakAfter,
-      smart: smartMode, both: bothDirections, sound: soundOn,
+      smart: smartMode, both: bothDirections, direction, sound: soundOn,
     });
   }
 
@@ -311,6 +312,7 @@
     levelFilter = ['primaire', 'avance', 'tout'].includes(prefs.level) ? prefs.level : 'primaire';
     smartMode = prefs.smart !== false;      // activé par défaut
     bothDirections = prefs.both === true;
+    direction = ['mix', 'en2fr', 'fr2en'].includes(prefs.direction) ? prefs.direction : 'mix';
     soundOn = prefs.sound !== false;        // activé par défaut
     if (!soundOn) E.sound.enable(false);    // enable(true) créerait l'AudioContext avant tout geste
 
@@ -403,6 +405,21 @@
         savePrefs();
       });
     });
+
+    // Sens des questions : au hasard, ou toujours dans le même sens. Avec un sens fixe,
+    // « chaque mot dans les deux sens » n'a plus de sens : on masque cette option.
+    const dirBtns = document.querySelectorAll('.direction-btn');
+    const bothWrap = $('#both-toggle-wrap');
+    const syncDirection = () => {
+      dirBtns.forEach(x => setActive(x, x.dataset.direction === direction));
+      if (bothWrap) bothWrap.hidden = direction !== 'mix';
+    };
+    dirBtns.forEach(b => b.addEventListener('click', () => {
+      direction = b.dataset.direction;
+      syncDirection();
+      savePrefs();
+    }));
+    syncDirection();
   }
 
   function toggleList(i, btn) {
@@ -457,12 +474,14 @@
   }
 
   function randomDir() { return Math.random() < 0.5 ? 'en2fr' : 'fr2en'; }
+  // Sens d'une question : fixe si l'option le demande, sinon au hasard.
+  function pickDir() { return direction === 'mix' ? randomDir() : direction; }
 
   function buildQueue() {
     let items = [];
     selectedWords().forEach(w => {
       const base = { en: w.en, fr: w.fr, enAll: w.enAll, frAll: w.frAll, listName: w.listName };
-      const dirs = bothDirections ? ['en2fr', 'fr2en'] : [randomDir()];
+      const dirs = direction === 'mix' && bothDirections ? ['en2fr', 'fr2en'] : [pickDir()];
       dirs.forEach(dir => items.push(Object.assign({ dir }, base)));
     });
 
@@ -522,7 +541,7 @@
     let q;
     if (customItems) {
       q = shuffle(customItems.map(it => ({
-        en: it.en, fr: it.fr, enAll: it.enAll, frAll: it.frAll, listName: it.listName, dir: randomDir(),
+        en: it.en, fr: it.fr, enAll: it.enAll, frAll: it.frAll, listName: it.listName, dir: pickDir(),
       })));
     } else {
       q = buildQueue();

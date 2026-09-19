@@ -31,7 +31,7 @@
 }
 
 /* Boutons « pastille » : niveau, listes, difficulté, longueur. */
-.level-btn, .list-btn, .difficulty-btn, .length-btn {
+.level-btn, .list-btn, .difficulty-btn, .length-btn, .direction-btn {
   background: linear-gradient(180deg, color-mix(in srgb, var(--bg) 88%, black), var(--bg-deep));
   border: 2px solid var(--card-border); border-radius: 14px;
   color: var(--ink); font-weight: 900;
@@ -39,13 +39,13 @@
   transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
-.level-btn:active, .list-btn:active, .difficulty-btn:active, .length-btn:active { transform: scale(0.98); }
+.level-btn:active, .list-btn:active, .difficulty-btn:active, .length-btn:active, .direction-btn:active { transform: scale(0.98); }
 @media (hover: hover) and (pointer: fine) {
-  .level-btn:hover, .list-btn:hover, .difficulty-btn:hover, .length-btn:hover {
+  .level-btn:hover, .list-btn:hover, .difficulty-btn:hover, .length-btn:hover, .direction-btn:hover {
     border-color: var(--yellow); color: var(--yellow);
   }
 }
-.level-btn.active, .list-btn.active, .difficulty-btn.active, .length-btn.active {
+.level-btn.active, .list-btn.active, .difficulty-btn.active, .length-btn.active, .direction-btn.active {
   background: linear-gradient(180deg,
     color-mix(in srgb, var(--yellow) 86%, white),
     color-mix(in srgb, var(--yellow) 92%, black));
@@ -92,6 +92,14 @@
 
 .length-picker { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .length-btn { font-size: 1rem; padding: 11px 4px; }
+
+.direction-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.direction-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  font-size: 0.95rem; padding: 10px 4px;
+}
+.direction-btn span { font-size: 0.66rem; font-weight: 800; opacity: 0.7; text-align: center; line-height: 1.2; }
+.direction-btn.active span { opacity: 0.85; }
 
 .option-toggle {
   display: flex; align-items: flex-start; gap: 10px; margin-top: 11px;

@@ -11,7 +11,7 @@
  * purge ainsi tout seul l'ancien cache « vocab-anglais-v1.1.1 ».
  */
 self.APP_SLUG = 'vocab-anglais';
-self.APP_VERSION = 'v1.2.0';
+self.APP_VERSION = 'v1.3.0';
 
 self.APP_SHELL = [
   './',

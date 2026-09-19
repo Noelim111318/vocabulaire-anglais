@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Vocabulaire d'Anglais</title>
   <meta name="description" content="Apprends du vocabulaire anglais en choisissant la bonne traduction, avec un rapport d'erreurs et un bilan par liste.">
-  <meta name="app-version" content="v1.2.0">
+  <meta name="app-version" content="v1.3.0">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#1A0A2E">
   <meta name="mobile-web-app-capable" content="yes">
@@ -34,7 +34,7 @@
   </div>
 
   <div class="header">
-    <div class="version-badge" id="app-version">v1.2.0</div>
+    <div class="version-badge" id="app-version">v1.3.0</div>
     <h1>Vocabulaire d'Anglais</h1>
     <p>Apprends de nouveaux mots à ton rythme !</p>
     <div class="streak-badge" id="streak-badge" hidden></div>
@@ -70,6 +70,14 @@
         <button class="length-btn" data-length="20" type="button">20</button>
         <button class="length-btn" data-length="40" type="button">40</button>
         <button class="length-btn" data-length="all" type="button">Tous</button>
+      </div>
+
+      <h2 class="section-title">Sens des questions</h2>
+      <p class="section-help">Quel mot est affiché, et dans quelle langue tu réponds.</p>
+      <div class="direction-picker" id="direction-picker" role="group" aria-label="Sens des questions">
+        <button class="direction-btn" data-direction="mix" type="button">Mélangé<span>au hasard</span></button>
+        <button class="direction-btn" data-direction="en2fr" type="button">EN → FR<span>je vois l'anglais</span></button>
+        <button class="direction-btn" data-direction="fr2en" type="button">FR → EN<span>je vois le français</span></button>
       </div>
 
       <h2 class="section-title">Options</h2>

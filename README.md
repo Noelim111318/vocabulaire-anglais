@@ -73,6 +73,7 @@ coche les listes à travailler.
 |---|---|
 | **Difficulté** | Facile (3 propositions) · Moyen (4) · Difficile (6) |
 | **Longueur de la partie** | 10 · 20 · 40 questions · **Tous** (tous les mots des listes cochées) — défaut : **20** |
+| **Sens des questions** | **Mélangé** (au hasard, défaut) · **EN → FR** (je vois le mot anglais, je choisis le français) · **FR → EN** (l'inverse). Avec EN → FR ou FR → EN, le sens ne change jamais d'une question à l'autre. |
 
 Les mots sont tirés au hasard parmi les listes cochées ; si tu en coches plus que
 la longueur choisie, une partie n'en pose que ce nombre. Réglages, listes et
@@ -83,7 +84,7 @@ progression sont mémorisés dans le navigateur.
 | Option | Effet | Défaut |
 |---|---|---|
 | 🧠 **Entraînement intelligent** | Repropose surtout les mots **pas encore acquis** (un mot est « appris » après **3 bonnes réponses d'affilée**), et espace les mots acquis. Le compteur `12/45 appris` s'affiche sur chaque bouton de liste. | activé |
-| ↔️ **Chaque mot dans les deux sens** | Chaque mot est posé EN→FR *et* FR→EN (partie 2× plus longue). | désactivé |
+| ↔️ **Chaque mot dans les deux sens** | Chaque mot est posé EN→FR *et* FR→EN (partie 2× plus longue). Disponible seulement avec le sens « Mélangé ». | désactivé |
 | 🔊 **Prononcer les deux mots** | Lecture automatique après chaque réponse (voir plus bas). | activé |
 | 🔔 **Petits sons** | Un « ding » / « boop » court quand on répond. | activé |
 
@@ -106,7 +107,7 @@ Clés `localStorage`, préfixées par `vocab-anglais:` :
 
 | Donnée | Clé |
 |---|---|
-| Listes cochées, difficulté, longueur, niveau, options | `prefs` |
+| Listes cochées, difficulté, longueur, niveau, sens des questions, options | `prefs` |
 | Mots appris (série de bonnes réponses par mot) | `mastery` |
 | Total cumulé d'erreurs par mot (`liste::mot`) | `errors` |
 | Série de jours d'affilée | `streak` |
