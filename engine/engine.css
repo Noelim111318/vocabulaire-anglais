@@ -276,6 +276,19 @@ body.screen-active {
   padding: 6px 8px;
 }
 
+/* ------------------------------------------- Pied de l'accueil (liens rares) */
+/* Liens peu frequents (reinitialiser, diagnostic), a l'ecart des reglages pour
+   eviter les faux clics. Le bouton « reinitialiser » se style comme .diag-link. */
+.home-footer {
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+  gap: 4px 22px; width: 100%; margin-top: 6px;
+}
+.diag-link {
+  background: none; border: none; padding: 10px 4px;
+  color: var(--ink-dim); font-size: 0.78rem; font-weight: 700;
+  cursor: pointer; text-decoration: underline;
+}
+
 /* --------------------------------------------------------------- Effets */
 .burst-container {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;

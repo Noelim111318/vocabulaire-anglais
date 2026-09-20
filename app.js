@@ -7,78 +7,30 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = 'v1.3.0';
+  const APP_VERSION = 'v1.4.0';
   const APP_ID = 'vocab-anglais';
   const E = window.AppEngine;
   const D = window.APP_DATA;
   const $ = E.$;
 
-  /* ----------------------------------------- Reprise des anciennes données */
-  // Avant le moteur, les clés étaient `vocab_*` (sans préfixe). On les recopie
-  // une fois vers le stockage du moteur, AVANT boot() : le badge de série et le
-  // bandeau d'installation lisent le stockage dès le démarrage.
-  const LEGACY_KEYS = {
-    vocab_prefs_v1: 'prefs',
-    vocab_error_history_v1: 'errors',
-    vocab_mastery_v1: 'mastery',
-    vocab_streak_v1: 'streak',
-    vocab_daily_v1: 'daily',
-    vocab_install_hidden: 'install-hidden',
-  };
-  E.store.ns(APP_ID);
-  E.store.migrate({
-    1: function () {
-      Object.keys(LEGACY_KEYS).forEach((oldKey) => {
-        const name = LEGACY_KEYS[oldKey];
-        let raw = null;
-        try { raw = localStorage.getItem(oldKey); } catch (e) { return; }
-        if (raw === null) return;
-        let done;
-        try {
-          if (!E.store.keys().includes(name)) {
-            E.store.save(name, name === 'install-hidden' ? true : JSON.parse(raw));
-          }
-          done = E.store.keys().includes(name);   // save() avale les erreurs de quota
-        } catch (e) {
-          done = true;                            // valeur illisible : rien à sauver
-        }
-        if (done) {
-          try { localStorage.removeItem(oldKey); } catch (e) { /* ignore */ }
-        }
-      });
-    },
-  });
-
   E.boot({
     id: APP_ID,
     version: APP_VERSION,
-    autoReload: false,      // voir « Mises à jour » plus bas : jamais en pleine partie
+    updateWhen: true,       // une nouvelle version ne s'applique que depuis l'accueil, jamais en pleine partie
+    // Anciennes clés (avant le moteur, sans préfixe) : reprises une fois, avant tout rendu.
+    legacyKeys: {
+      vocab_prefs_v1: 'prefs',
+      vocab_error_history_v1: 'errors',
+      vocab_mastery_v1: 'mastery',
+      vocab_streak_v1: 'streak',
+      vocab_daily_v1: 'daily',
+      vocab_install_hidden: { to: 'install-hidden', map: () => true },
+    },
     strings: {
-      weekNotPlayed: 'pas joué',
       weekSummary: (seen, days, rate) =>
         `${seen} mots sur ${days} jour${days > 1 ? 's' : ''} — ${rate}% de réussite`,
-      streak: (n) => `🔥 ${n} jour${n > 1 ? 's' : ''} d'affilée`,
-      installIosHint: 'Sur iPhone/iPad : touche « Partager » (le carré avec une flèche vers le haut), '
-        + 'puis « Sur l\'écran d\'accueil ».',
     },
   });
-
-  /* ------------------------------------------------- Journal des ouvertures */
-  // Diagnostic (voir diag.html) : garde les 30 dernières ouvertures (heure,
-  // version, mode, clés de progression présentes) dans une clé hors espace de
-  // l'appli, pour situer un éventuel effacement des données.
-  (function logOpening() {
-    try {
-      const own = E.store.keys();
-      const log = JSON.parse(localStorage.getItem('diag:log') || '[]');
-      log.push({
-        t: new Date().toISOString(), a: APP_ID, v: APP_VERSION,
-        m: window.matchMedia('(display-mode: standalone)').matches ? 1 : 0,
-        k: ['prefs', 'errors', 'mastery', 'streak', 'daily'].filter((k) => own.includes(k)).join(','),
-      });
-      localStorage.setItem('diag:log', JSON.stringify(log.slice(-30)));
-    } catch (e) { /* ignore */ }
-  })();
 
   /* ------------------------------------------------- Load / clean word lists */
   function toTranslations(v) {
@@ -783,21 +735,8 @@
     E.history.bumpStreak();
     E.history.logDaily(seen, scoreCorrect);
     E.history.renderStreak('#streak-badge');
-    requestPersistence();
   }
 
-  // Demande au navigateur de ne pas purger le stockage local (historique, série).
-  // Chrome l'accorde d'office aux applis installées ; Firefox interroge
-  // l'utilisateur, d'où un seul essai, après une première partie plutôt qu'au
-  // démarrage. Sans effet là où l'API n'existe pas.
-  let persistAsked = false;
-  function requestPersistence() {
-    if (persistAsked || !(navigator.storage && navigator.storage.persist)) return;
-    persistAsked = true;
-    navigator.storage.persisted()
-      .then((yes) => yes || navigator.storage.persist())
-      .catch(() => { /* ignore */ });
-  }
 
   /* ----------------------------------------------------------------- Results */
   function showResults() {
@@ -1005,22 +944,6 @@
       const showEn = currentItem.dir === 'en2fr';
       speak(showEn ? currentItem.en : currentItem.fr, showEn ? 'en' : 'fr');
     }
-  });
-
-  /* ------------------------------------------------------------ Mises à jour */
-  // Une nouvelle version n'est appliquée que depuis l'accueil : jamais en plein
-  // milieu d'une partie ni pendant la lecture du bilan. Le service worker prend
-  // la main (apply), puis la page se recharge quand il contrôle réellement la page.
-  E.on('sw:updateready', (update) => {
-    let off = null;
-    const applyIfHome = () => {
-      if (E.screens.current() !== 'screen-settings') return;
-      if (off) off();
-      navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload(), { once: true });
-      update.apply();
-    };
-    off = E.on('screen:show', applyIfHome);
-    applyIfHome();
   });
 
   /* ---------------------------------------------------------------- Démarrage */

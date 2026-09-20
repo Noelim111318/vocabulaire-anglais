@@ -113,22 +113,31 @@ Clés `localStorage`, préfixées par `vocab-anglais:` :
 | Série de jours d'affilée | `streak` |
 | Questions par jour (60 jours, pour le graphique 7 j) | `daily` |
 | Bandeau « Installer » masqué | `install-hidden` |
-| Version du schéma de stockage | `__schema` |
+| Marqueurs internes du moteur (reprise des anciennes clés faite) | `__legacy` (et `__schema` pour d'éventuelles migrations) |
 
 **Reprise des anciennes données.** Avant la v1.2.0, les clés s'appelaient
 `vocab_prefs_v1`, `vocab_error_history_v1`, `vocab_mastery_v1`, `vocab_streak_v1`,
-`vocab_daily_v1` et `vocab_install_hidden`. Au premier lancement, `store.migrate`
-(étape 1, tout en haut de `app.js`) les recopie vers les clés ci-dessus puis supprime
-les anciennes : personne ne perd ses mots appris, sa série ni son historique.
+`vocab_daily_v1` et `vocab_install_hidden`. Au premier lancement, `legacyKeys` (option de
+`AppEngine.boot()`, dans `app.js`) les recopie vers les clés ci-dessus puis supprime les
+anciennes : personne ne perd ses mots appris, sa série ni son historique.
 
 ## Diagnostic
 
-En bas de l'écran d'accueil, le lien **Diagnostic** ouvre [`diag.html`](diag.html) :
-ce que l'appli a en mémoire sur l'appareil (clés, espace utilisé, service worker,
-caches) et un **journal des 30 dernières ouvertures** (clé `diag:log`, hors espace de
-l'appli) qui permet de situer un éventuel effacement des données. Boutons **Copier**
-et **Partager**. Lecture seule, rien n'est envoyé ; les valeurs très longues (mots
-appris) sont tronquées.
+En bas de l'écran d'accueil, le lien **Diagnostic** ouvre [`diag.html`](diag.html), un rapport
+complet en lecture seule (moteur `engine/diag.js`) :
+
+- un **résumé avec verdicts** (✅ / ⚠️ / ❌) ;
+- la **cohérence des versions** (HTML, script, service worker, manifest, caches, service worker
+  actif) : elle repère un état « mélangé » pendant une mise à jour ;
+- le **précache** complet ou non (tous les fichiers de `APP_SHELL` sont-ils dans le cache ?) ;
+- le **journal des 30 dernières ouvertures** (`diag:log:<id>`), avec la détection des données
+  qui **disparaissent** d'une ouverture à la suivante ;
+- les **erreurs JavaScript** récentes (`diag:errors:<id>`), le stockage (les valeurs très longues,
+  comme les mots appris, sont tronquées), les service workers, les caches et l'appareil.
+
+Boutons **Copier**, **Partager**, **Enregistrer (.txt)**, **Vérifier les mises à jour** et
+**Relancer**. Rien n'est envoyé ; les valeurs des autres applis de la même origine ne sont pas
+affichées (noms seulement).
 
 ## Écouter les mots
 
@@ -183,11 +192,14 @@ ou Partager → « Sur l'écran d'accueil » (iOS).
 
 ## Livrer une nouvelle version
 
-1. `./tools/bump-version.sh vX.Y.Z` — bumpe la version dans `index.html`,
-   `app.js`, `service-worker.js` et `manifest.json` d'un coup.
-2. Ajoute tout nouveau fichier statique à `APP_SHELL` dans `service-worker.js`.
-3. Déploie : les appareils déjà installés se mettent à jour tout seuls (au
-   prochain passage par l'accueil).
+1. `./tools/check-app.sh --compat <dernière-révision-publiée>` — versions alignées, `APP_SHELL`
+   complet, identifiants utilisés par le JS présents, et **aucun identifiant renommé** (pendant
+   une mise à jour, l'ancien JS tourne un moment sur le nouveau HTML).
+2. `./tools/bump-version.sh vX.Y.Z` — bumpe la version dans `index.html`, `app.js`,
+   `service-worker.js` et `manifest.json` d'un coup.
+3. Ajoute tout nouveau fichier statique à `APP_SHELL` dans `service-worker.js`.
+4. Déploie : les appareils déjà installés se mettent à jour tout seuls (au prochain passage par
+   l'accueil, jamais en pleine partie).
 
 ## Mettre à jour le moteur
 
@@ -213,10 +225,10 @@ moteur : [`engine/README.md`](engine/README.md).
 | `app.css` | Styles (importe `engine/engine.css`) |
 | `manifest.json` | Config PWA |
 | `service-worker.js` | Identité du cache + liste des fichiers ; logique dans `engine/sw-core.js` |
-| `diag.html` | Page de diagnostic (lecture seule) |
+| `diag.html` | Page de diagnostic complet (lecture seule), rapport produit par `engine/diag.js` |
 | `engine/` | Le moteur PWA (copie de `toolbox/pwa-engine`), avec la police Nunito |
 | `icons/`, `favicon.ico` | Icônes de l'appli |
-| `tools/` | `make-icon.py` (icônes, facultatif), `bump-version.sh` (version) |
+| `tools/` | `make-icon.py` (icônes, facultatif), `bump-version.sh` (version), `check-app.sh` (contrôle avant livraison) |
 
 ## Icônes
 

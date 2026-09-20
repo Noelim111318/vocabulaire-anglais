@@ -115,12 +115,9 @@
   display: block; font-weight: 700; color: var(--ink-dim); font-size: 0.76rem; margin-top: 1px;
 }
 
-/* Liens rares, volontairement à l'écart des réglages (évite les faux clics). */
-.home-footer {
-  display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
-  gap: 4px 22px; width: 100%; margin-top: 6px;
-}
-.reset-progress, .diag-link {
+/* Liens rares en bas de l'accueil : .home-footer et .diag-link viennent d'engine.css ;
+   le bouton « réinitialiser » a le même aspect. */
+.reset-progress {
   background: none; border: none; padding: 10px 4px;
   color: var(--ink-dim); font-size: 0.78rem; font-weight: 700;
   cursor: pointer; text-decoration: underline;

@@ -22,6 +22,11 @@ AppEngine.boot({
   screenHash: true,                     // #play dans l'URL (refresh garde l'ecran + gere le retour)
   backButton: true,                     // sinon : fleche retour via popstate (voir screens.show push)
   autoReload: false,                    // ne recharge pas seul sur maj SW
+  updateWhen: true,                     // le moteur applique la maj du SW seulement a l'accueil (ou une fonction () => bool)
+  legacyKeys: { ancienne: 'nouvelle' }, // reprend d'anciennes cles localStorage, une fois, avant tout rendu
+  journal: true,                        // journal des ouvertures + erreurs JS (page diag.html) ; false pour l'eviter
+  persist: true,                        // bumpStreak() demande le stockage persistant ; false pour l'eviter
+  versionGuard: true,                   // HTML et JS de meme version, sinon 1 rechargement ; false pour l'eviter
   install: {                            // false pour pas de bandeau
     showOn: () => AppEngine.screens.current() === 'screen-home',
     iosHint: 'Sur iPhone : Partager -> Sur l\'ecran d\'accueil.',
@@ -44,6 +49,8 @@ aussi un `console.info` avec la version du moteur et de l'app.
 | `remove(key)` | supprime |
 | `keys()` | toutes les cles de cette app (sans le prefixe) |
 | `clear()` | efface tout ce qui appartient a cette app (bouton "reset") |
+| `persist()` | demande au navigateur de ne pas purger le stockage (une fois par page ; promesse `true/false`, jamais rejetee). Chrome l'accorde d'office aux applis installees, Firefox interroge l'utilisateur : c'est pourquoi `history.bumpStreak()` le declenche (apres une 1re partie), pas `boot()`. Evenement `store:persist` |
+| `importLegacy(map)` | recopie d'anciennes cles (sans prefixe) : `{ ancienne: 'nouvelle' }` ou `{ ancienne: { to: 'nouvelle', map: (valeur, brut) => valeur } }`. N'ecrase jamais une cle existante ; supprime l'ancienne **seulement** si la nouvelle est bien ecrite (ou si elle est illisible). Renvoie le nombre de cles reprises. Voir `boot({ legacyKeys })` |
 | `migrate({ 1: fn, 2: fn })` | joue une fois chaque `fn` dont le numero depasse le schema courant, dans l'ordre, et memorise le schema atteint. Si une etape jette : arret **sans** avancer le schema (elle sera rejouee) + `store:migrate-error` |
 | `ns(id)` | change le prefixe (fait par `boot`) |
 
@@ -74,10 +81,12 @@ ajoutes au DOM apres coup fonctionnent.
 | `sw:updateready` | `{ registration, apply() }` — nouvelle version prete |
 | `sw:error` | l'erreur d'enregistrement |
 | `store:quota` | `{ key, error }` — un `store.save()` a echoue (mode prive / quota) |
+| `store:persist` | `{ granted }` — resultat de `store.persist()` |
+| `version:mismatch` | `{ html, script }` — la version du HTML (`<meta name="app-version">`) differe de celle du JS (voir « Garde de version ») |
 | `store:migrate-error` | `{ step, error }` — une etape de `store.migrate()` a jete ; le schema n'a pas avance |
 
 ### `AppEngine.strings` / `AppEngine.setStrings({...})` — textes (i18n)
-Defauts FR. Surcharge par `boot({ strings })` ou `setStrings()`. Cles :
+Defauts FR (accentues). Surcharge par `boot({ strings })` ou `setStrings()`. Cles :
 `streak(n)`, `weekDayLabels[]`, `weekNotPlayed`, `weekCell(correct, seen, pct)`,
 `weekSummary(seen, days, rate)`, `installIosHint`.
 
@@ -163,6 +172,14 @@ nouveaux fichiers a `APP_SHELL`.
 page, pas juste apres avoir demande. Un premier enregistrement (aucun SW avant)
 ne declenche pas de rechargement.
 
+**Mise a jour au repos (recommande)** : `boot({ updateWhen: true })`. Le moteur
+applique alors la nouvelle version **seulement** quand l'ecran actif est un ecran
+d'accueil (`screen-home`, `screen-settings`, `screen-title`) — jamais en pleine
+partie ni pendant la lecture d'un bilan — puis recharge quand le nouveau SW
+controle reellement la page. Passe une fonction pour ton propre critere :
+`updateWhen: () => AppEngine.screens.current() === 'screen-home'`. Remplace
+`autoReload` et le cablage manuel de `sw:updateready`.
+
 **Reload non force** : `boot({ autoReload: false })` puis
 ```js
 AppEngine.on('sw:updateready', function (u) {
@@ -172,6 +189,62 @@ AppEngine.on('sw:updateready', function (u) {
 ```
 Tant que `apply()` n'est pas appele, l'ancien SW reste aux commandes : rien ne
 change sous les pieds de l'utilisateur.
+
+## Garde de version
+
+`bump-version.sh` ecrit la version dans `<meta name="app-version">` **et** dans
+`app.js`. Au demarrage, `boot()` les compare. Si elles different, la page melange un
+HTML et un JS de versions differentes (typiquement pendant une mise a jour, quand
+un fichier perime est encore servi) : le moteur emet `version:mismatch`, expose
+`AppEngine.versionMismatch = { html, script }`, note l'ecart dans le journal et
+recharge **une seule fois** par paire de versions (drapeau de session : pas de
+boucle). `boot({ versionGuard: false })` la desactive.
+
+Limite : elle protege les mises a jour entre versions qui embarquent toutes le
+moteur. Un JS neuf sur un tout vieux HTML sans moteur plante avant `boot()`.
+
+## Journal et diagnostic (`diag.html`)
+
+`boot()` tient, hors de l'espace prefixe de l'app (donc hors de portee d'un
+« reinitialiser »), deux petits journaux :
+- `diag:log:<id>` — les 30 dernieres ouvertures : heure, version de l'app et du
+  moteur, mode (installee / onglet), cles presentes, octets, en ligne, page
+  controlee par un SW, ecart HTML/JS eventuel ;
+- `diag:errors:<id>` — les 15 dernieres erreurs JS (`error`, `unhandledrejection`),
+  dedoublonnees.
+
+`engine/diag.js` (charge **uniquement** par `diag.html`) en fait un rapport complet,
+en lecture seule : resume avec verdicts (ok / a surveiller / probleme), coherence des
+versions (HTML, JS, SW, manifest, caches, SW actif), precache (APP_SHELL) complet ou non,
+analyse du journal (**detecte les cles qui disparaissent d'une ouverture a la suivante**),
+erreurs recentes, stockage, service workers, caches, appareil. Boutons Copier, Partager,
+Enregistrer (.txt), Verifier les mises a jour, Relancer.
+
+```html
+<body data-diag data-app-id="monapp" data-legacy="ancien_,vieux_">   <!-- diag.html du template -->
+<script src="engine/engine.js"></script><script src="engine/diag.js"></script>
+```
+
+`data-legacy` liste les prefixes d'anciennes cles a signaler. `diag.html` et
+`engine/diag.js` sont dans `APP_SHELL`. Les fonctions pures (`versionIn`, `parseShell`,
+`checkVersions`, `analyzeJournal`, `verdicts`, `toText`) sont sous `AppEngine.diag`.
+`boot({ journal: false })` coupe les deux journaux.
+
+## Regles pour ne pas casser une mise a jour
+
+1. **Ne renomme jamais un identifiant d'element** (`id="..."`) d'une version a l'autre :
+   ajoute-en. Pendant une mise a jour, l'ancien JS (encore en cache chez certains
+   utilisateurs) s'execute un moment sur le **nouveau** HTML ; un identifiant renomme le
+   fait planter avant de cabler l'accueil (ecran vide, boutons morts). `tools/check-app.sh
+   --compat <revision>` le verifie.
+2. **Ne supprime pas de cle localStorage sans la reprendre** : `boot({ legacyKeys })`.
+3. **Ne pousse pas un JS qui suppose un nouvel element du HTML** sans t'y proteger :
+   le nouveau JS peut tourner un instant sur l'ancien HTML (`$('#x')` peut etre `null`).
+4. **Pas de rechargement en pleine partie** : `updateWhen: true`.
+5. **Un bouton qui quitte une partie ne se place pas contre la zone ou l'on tape**
+   (« question suivante » qui apparait et disparait) et demande confirmation.
+6. **Apres un deploiement, teste en rouvrant l'appli dans un NOUVEL onglet** (comme un
+   utilisateur), pas en re-naviguant dans l'onglet deja ouvert.
 
 ## HTML attendu
 

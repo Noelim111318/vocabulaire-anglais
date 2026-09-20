@@ -22,7 +22,7 @@
 (function (global) {
   'use strict';
 
-  var ENGINE_VERSION = '1.1.0';
+  var ENGINE_VERSION = '1.2.0';
 
   /* ------------------------------------------------------------ Selecteurs */
   function $(sel, root) { return (root || document).querySelector(sel); }
@@ -33,20 +33,35 @@
     reduceMotion = global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches;
   } catch (e) { /* ignore */ }
 
+  // L'app tourne-t-elle installee (fenetre dediee) et non dans un onglet ?
+  function standaloneMode() {
+    try {
+      return !!(global.matchMedia && global.matchMedia('(display-mode: standalone)').matches)
+        || (global.navigator && global.navigator.standalone === true)
+        || document.referrer.indexOf('android-app://') === 0;
+    } catch (e) { return false; }
+  }
+  // Ecran « d'accueil » : la ou l'on peut sans risque proposer l'installation
+  // ou appliquer une mise a jour (jamais en pleine partie).
+  function isIdleScreen() {
+    var cur = screens.current();
+    return cur == null || cur === 'screen-home' || cur === 'screen-settings' || cur === 'screen-title';
+  }
+
   /* --------------------------------------------------------- Chaines (i18n) */
   // Surcharge par boot({ strings }) ou AppEngine.setStrings({ ... }).
   var STRINGS = {
     // history.renderStreak
-    streak: function (n) { return '🔥 ' + n + ' jour' + (n > 1 ? 's' : '') + " d'affilee"; },
+    streak: function (n) { return '🔥 ' + n + ' jour' + (n > 1 ? 's' : '') + " d'affilée"; },
     // history.renderWeek
     weekDayLabels: ['D', 'L', 'M', 'M', 'J', 'V', 'S'],
-    weekNotPlayed: 'pas joue',
+    weekNotPlayed: 'pas joué',
     weekCell: function (correct, seen, pct) { return correct + '/' + seen + ' — ' + pct + '%'; },
     weekSummary: function (seen, days, rate) {
-      return seen + ' sur ' + days + ' jour' + (days > 1 ? 's' : '') + ' — ' + rate + '% de reussite';
+      return seen + ' sur ' + days + ' jour' + (days > 1 ? 's' : '') + ' — ' + rate + '% de réussite';
     },
     // installBanner
-    installIosHint: "Sur iPhone/iPad : touche « Partager » (le carre avec une fleche vers le haut), puis « Sur l'ecran d'accueil ».",
+    installIosHint: "Sur iPhone/iPad : touche « Partager » (le carré avec une flèche vers le haut), puis « Sur l'écran d'accueil ».",
   };
   function setStrings(obj) {
     if (obj && typeof obj === 'object') {
@@ -78,6 +93,9 @@
   // deux apps servies depuis le meme domaine ne se marchent pas dessus.
   var NS = 'app';
   function key(k) { return NS + ':' + k; }
+
+  var persistAsked = false;      // un seul essai de storage.persist() par page
+  var autoPersist = true;        // history.bumpStreak() le declenche (boot({ persist:false }) l'evite)
 
   var store = {
     ns: function (id) { if (id) NS = String(id); return NS; },
@@ -113,6 +131,46 @@
     // Efface tout ce qui appartient a cette app (utile pour un bouton "reset").
     clear: function () {
       try { store.keys().forEach(function (k) { store.remove(k); }); } catch (e) { /* ignore */ }
+    },
+    // Demande au navigateur de ne pas purger le stockage de l'origine. Chrome
+    // l'accorde d'office aux applis installees ; Firefox interroge l'utilisateur,
+    // d'ou un seul essai par page (et declenche par history.bumpStreak, donc apres
+    // une premiere partie plutot qu'au demarrage). Promesse jamais rejetee : true/false.
+    persist: function () {
+      if (persistAsked || !(navigator.storage && navigator.storage.persist)) return Promise.resolve(false);
+      persistAsked = true;
+      return Promise.resolve(navigator.storage.persisted ? navigator.storage.persisted() : false)
+        .then(function (yes) { return yes || navigator.storage.persist(); })
+        .then(function (ok) { emit('store:persist', { granted: !!ok }); return !!ok; },
+          function () { return false; });
+    },
+    // Reprise d'anciennes cles (sans prefixe) vers le stockage prefixe de l'app.
+    // map = { ancienneCle: 'nouvelle' } ou { ancienneCle: { to: 'nouvelle', map: fn(valeurLue, brut) } }.
+    // Une ancienne cle n'est supprimee que si la nouvelle est bien ecrite (save()
+    // avale les erreurs de quota) ou si elle est illisible ; une nouvelle cle deja
+    // presente n'est jamais ecrasee. Renvoie le nombre de cles reprises.
+    importLegacy: function (map) {
+      var n = 0;
+      Object.keys(map || {}).forEach(function (oldKey) {
+        var spec = map[oldKey];
+        var to = typeof spec === 'string' ? spec : (spec && spec.to);
+        if (!to) return;
+        var raw = null;
+        try { raw = localStorage.getItem(oldKey); } catch (e) { return; }
+        if (raw === null) return;
+        var done;
+        try {
+          if (store.keys().indexOf(to) < 0) {
+            var val = JSON.parse(raw);
+            if (spec && typeof spec.map === 'function') val = spec.map(val, raw);
+            store.save(to, val);
+            n += 1;
+          }
+          done = store.keys().indexOf(to) >= 0;
+        } catch (e) { done = true; }
+        if (done) { try { localStorage.removeItem(oldKey); } catch (e2) { /* ignore */ } }
+      });
+      return n;
     },
     // Migrations de schema. steps = { 1: fn, 2: fn, ... } ; chaque fn dont le
     // numero depasse le schema courant est jouee une fois, dans l'ordre.
@@ -425,6 +483,7 @@
       s.count = (s.lastDay === yest) ? (s.count + 1) : 1;
       s.lastDay = today;
       store.save('streak', s);
+      if (autoPersist) store.persist();
     },
     // -> { count, alive }  (alive = serie encore valable aujourd'hui ou hier)
     streak: function () {
@@ -517,11 +576,7 @@
     var mode = null;               // null | 'prompt' | 'ios'
     var hiddenByUser = store.load(hideKey, false) === true || store.load(hideKey, false) === '1';
 
-    function isStandalone() {
-      return global.matchMedia('(display-mode: standalone)').matches
-        || global.navigator.standalone === true
-        || document.referrer.indexOf('android-app://') === 0;
-    }
+    function isStandalone() { return standaloneMode(); }
     var iOS = /iphone|ipad|ipod/i.test(navigator.userAgent)
       || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     var iOSSafari = iOS && /safari/i.test(navigator.userAgent)
@@ -640,6 +695,92 @@
     });
   }
 
+  /* --------------------------------------------- Mise a jour au repos */
+  // Applique une nouvelle version seulement quand when() est vrai (par defaut :
+  // ecran d'accueil), puis recharge quand le nouveau SW controle vraiment la
+  // page. Evite de recharger en pleine partie. Voir boot({ updateWhen }).
+  function deferUpdates(when) {
+    on('sw:updateready', function (u) {
+      var off = null;
+      function attempt() {
+        var ok = false;
+        try { ok = !!when(); } catch (e) { ok = false; }
+        if (!ok) return;
+        if (off) off();
+        var reloading = false;
+        navigator.serviceWorker.addEventListener('controllerchange', function () {
+          if (reloading) return;
+          reloading = true;
+          global.location.reload();
+        }, { once: true });
+        u.apply();
+      }
+      off = on('screen:show', attempt);
+      attempt();
+    });
+  }
+
+  /* ------------------------------------------ Journal (aide au diagnostic) */
+  // Deux petits journaux, hors espace prefixe de l'app (donc ils survivent a un
+  // effacement ciblant les cles de l'app) : les 30 dernieres ouvertures
+  // (« diag:log:<id> ») et les 15 dernieres erreurs JS (« diag:errors:<id> »).
+  // La page diag.html (engine/diag.js) les lit. Desactivable : boot({ journal:false }).
+  function readList(k) {
+    try { var v = JSON.parse(localStorage.getItem(k)); return Array.isArray(v) ? v : []; } catch (e) { return []; }
+  }
+  function ownKeyStats() {
+    var keys = [], bytes = 0;
+    try {
+      var p = NS + ':';
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (!k || k.indexOf(p) !== 0) continue;
+        var name = k.slice(p.length);
+        if (name.indexOf('__') !== 0) keys.push(name);   // __schema, __legacy : internes
+        bytes += k.length + (localStorage.getItem(k) || '').length;
+      }
+    } catch (e) { /* ignore */ }
+    return { keys: keys.sort(), bytes: bytes };
+  }
+  function journalOpening(config, mismatch) {
+    try {
+      var st = ownKeyStats();
+      var k = 'diag:log:' + (config.id || 'app');
+      var log = readList(k);
+      var entry = {
+        t: new Date().toISOString(), a: config.id || 'app', v: config.version || '', e: ENGINE_VERSION,
+        m: standaloneMode() ? 1 : 0,                      // 1 = installee, 0 = onglet
+        k: st.keys.join(','), b: st.bytes,                // cles presentes + octets
+        o: navigator.onLine === false ? 0 : 1,            // en ligne ?
+        c: (navigator.serviceWorker && navigator.serviceWorker.controller) ? 1 : 0,   // page controlee par un SW ?
+      };
+      if (mismatch) entry.x = mismatch.html + '>' + mismatch.script;
+      log.push(entry);
+      localStorage.setItem(k, JSON.stringify(log.slice(-30)));
+    } catch (e) { /* ignore */ }
+  }
+  function captureErrors(config) {
+    var k = 'diag:errors:' + (config.id || 'app');
+    function push(msg, src) {
+      try {
+        var list = readList(k);
+        var m = String(msg == null ? '' : msg).slice(0, 160);
+        var last = list[list.length - 1];
+        if (last && last.m === m) { last.n = (last.n || 1) + 1; last.t = new Date().toISOString(); }
+        else list.push({ t: new Date().toISOString(), m: m, s: src ? String(src).slice(0, 80) : '', v: config.version || '' });
+        localStorage.setItem(k, JSON.stringify(list.slice(-15)));
+      } catch (e) { /* ignore : ne jamais faire echouer le gestionnaire d'erreur */ }
+    }
+    global.addEventListener('error', function (ev) {
+      if (!ev) return;
+      push(ev.message, ev.filename ? String(ev.filename).split('/').pop() + ':' + ev.lineno : '');
+    });
+    global.addEventListener('unhandledrejection', function (ev) {
+      var r = ev && ev.reason;
+      push('promesse rejetee : ' + (r && r.message ? r.message : r));
+    });
+  }
+
   /* ---------------------------------------------------------------- boot() */
   // Cablage courant, a appeler tout en haut de app.js. Tout est optionnel
   // sauf `id`. Renvoie { install } (le handle du bandeau, avec .refresh()).
@@ -647,8 +788,44 @@
     config = config || {};
     if (!config.id) console.warn('AppEngine.boot: pas d\'`id` -> localStorage non prefixe');
     store.ns(config.id || 'app');
+    autoPersist = config.persist !== false;
+
+    // Reprise d'anciennes cles, une fois, AVANT tout ce qui lit le stockage (badge
+    // de serie, bandeau d'installation) : sinon la 1re page s'afficherait vide.
+    if (config.legacyKeys && !store.load('__legacy', 0)) {
+      store.importLegacy(config.legacyKeys);
+      store.save('__legacy', 1);
+    }
 
     if (config.strings) setStrings(config.strings);
+
+    // Garde de version : le HTML (meta app-version, ecrite par bump-version.sh) et le
+    // script doivent etre de la meme version. Sinon (HTML perime servi avec un JS
+    // frais, ou l'inverse) l'app se cable de travers : on recharge UNE fois
+    // (drapeau de session, pas de boucle) et on emet 'version:mismatch'.
+    var mismatch = null;
+    if (config.version && config.versionGuard !== false) {
+      var meta = $('meta[name="app-version"]');
+      var htmlV = meta && meta.getAttribute('content');
+      if (htmlV && htmlV !== config.version) mismatch = { html: htmlV, script: config.version };
+    }
+    if (global.AppEngine) global.AppEngine.versionMismatch = mismatch;
+
+    if (config.journal !== false) {
+      journalOpening(config, mismatch);
+      captureErrors(config);
+    }
+
+    if (mismatch) {
+      emit('version:mismatch', mismatch);
+      try {
+        var flag = 'AppEngine:reload:' + mismatch.html + '>' + mismatch.script;
+        if (!global.sessionStorage.getItem(flag)) {
+          global.sessionStorage.setItem(flag, '1');
+          global.location.reload();
+        }
+      } catch (e) { /* ignore */ }
+    }
 
     // Badge de version dans l'entete
     if (config.version && config.versionBadgeSel !== false) {
@@ -676,21 +853,23 @@
     if (config.install !== false) {
       var ic = typeof config.install === 'object' ? config.install : {};
       if (ic.showOn == null) {
-        ic.showOn = function () {
-          var cur = screens.current();
-          return cur == null || cur === 'screen-home' || cur === 'screen-settings' || cur === 'screen-title';
-        };
+        ic.showOn = isIdleScreen;
       }
       install = installBanner(ic);
     }
 
     // Service worker
     if (config.serviceWorker !== false) {
+      // updateWhen : le moteur applique la mise a jour au bon moment (voir deferUpdates) ;
+      // il remplace autoReload (qui recharge tout de suite) et le cablage de sw:updateready.
+      var updateWhen = typeof config.updateWhen === 'function' ? config.updateWhen
+        : (config.updateWhen ? isIdleScreen : null);
       registerServiceWorker({
         version: config.version || 'v1',
         url: config.swUrl || 'service-worker.js',
-        autoReload: config.autoReload,
+        autoReload: updateWhen ? false : config.autoReload,
       });
+      if (updateWhen) deferUpdates(updateWhen);
     }
 
     try {
@@ -704,6 +883,7 @@
   /* -------------------------------------------------------------- Exports */
   global.AppEngine = {
     version: ENGINE_VERSION,
+    versionMismatch: null,      // { html, script } si le HTML et le JS different (rempli par boot)
     reduceMotion: reduceMotion,
     $: $,
     $$: $$,
